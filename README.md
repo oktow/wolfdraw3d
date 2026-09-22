@@ -6,6 +6,10 @@ Prototipe aplikasi menggambar 3D untuk target Android, dibuat dengan Godot 4 dan
 
 **Pembaruan 0.2.0 (code 3):** `build/WolfDraw3D-0.2.0-debug.apk` menambahkan brush Pena, Pensil tekstur, dan Kuas tekstur, opacity dan taper, format proyek v4, serta pemotongan eraser yang mempertahankan pola tekstur. Tetap memakai paket dan keystore yang sama untuk pembaruan tanpa uninstall. Brush sudah diuji di Godot 4.7.2 PC; rasa/performa brush baru pada Android perlu diuji pengguna.
 
+**Pembaruan 0.2.1 (code 4):** `build/WolfDraw3D-0.2.1-debug.apk` menambahkan icon toolbar atas untuk Radius, Opacity, Draw Shape, dan Duplicate. Kontrol tetap icon-only, berukuran seragam, dan menu lengkap tetap tersedia.
+
+**Pembaruan 0.2.2 (code 5):** `build/WolfDraw3D-0.2.2-debug.apk` menambahkan Loft untuk menghubungkan minimal dua stroke terpilih menjadi Guide surface baru, kontrol Loft tension, icon Loft di toolbar, serta optimasi resampling dan batas vertex.
+
 **Pembaruan 0.1.1 (code 2):** `build/WolfDraw3D-0.1.1-debug.apk` memperbaiki pilihan dropdown yang tidak merespons sentuhan. Emulasi mouse untuk GUI diaktifkan, sementara event mouse emulasi disaring dari alat kanvas. Popup membersihkan state sentuhan sebelum dibuka. Paket dan debug keystore tetap sama agar dapat dipasang sebagai pembaruan 0.1.0 tanpa uninstall. Pengguna telah menjalankan 0.1.0 di Android; 0.1.1 masih perlu diuji ulang pada perangkat tersebut.
 
 Uji popup dijalankan dengan jendela Godot (bukan `--headless`): `--path . -- --smoke-test --ui-touch-test`. Input sentuh dikirim melalui `Input.parse_input_event`, lalu memilih Ortografis, Perspektif, dan snap dari popup sebenarnya, serta memverifikasi orbit tidak diproses dua kali. Dasar pengaturan: [Godot TouchScreenButton](https://docs.godotengine.org/en/4.7/classes/class_touchscreenbutton.html) dan [identitas event emulasi](https://docs.godotengine.org/en/4.7/classes/class_inputevent.html).
@@ -17,7 +21,7 @@ Salin APK ke perangkat, buka file, lalu izinkan pemasangan dari aplikasi pengelo
 Build ulang dengan preset yang sudah tersedia, Java/SDK pada Editor Settings, dan template ekspor Godot 4.7.2:
 
 ```powershell
-& 'D:\Godot_v4.7.2\Godot_v4.7.2-stable_win64_console.exe' --headless --path . --export-debug Android build/WolfDraw3D-0.2.0-debug.apk
+& 'D:\Godot_v4.7.2\Godot_v4.7.2-stable_win64_console.exe' --headless --path . --export-debug Android build/WolfDraw3D-0.2.1-debug.apk
 ```
 
 Referensi setup: [dokumentasi ekspor Android Godot 4.7](https://docs.godotengine.org/en/4.7/tutorials/export/exporting_for_android.html). Uji perangkat berikutnya: buka aplikasi, orbit/pan/pinch, Draw/Bend, eraser, simpan/buka, sembunyikan menu, dan pause/resume. Tampilan masih berorientasi tablet landscape; kenyamanan layar ponsel belum tervalidasi.

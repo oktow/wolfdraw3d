@@ -37,6 +37,9 @@ var creation_mode := "plane"
 var profile := PackedVector3Array()
 var last_screen := Vector2.ZERO
 var sweep_length := 4.0
+var loft_tension := 0.5
+var loft_tension_slider: HSlider
+var loft_tension_label: Label
 
 func start_profile() -> void:
 	if current() != null:
@@ -220,6 +223,23 @@ func create_plane(frame: Transform3D, size: Vector2) -> void:
 	preview.configure(frame, size)
 	finish_preview()
 
+func create_loft(profiles: Array[PackedVector3Array]) -> void:
+	if profiles.size() < 2 or current() != null or surfaces.size() >= 100:
+		return
+	var column_count := 2
+	for profile in profiles:
+		column_count = maxi(column_count, mini(profile.size(), 256))
+	if profiles.size() * column_count > 200000:
+		app.show_message(Localization.translate("Batas 200.000 vertex guide tercapai."))
+		return
+	app.finish_stroke()
+	cancel_preview()
+	creation_mode = "loft"
+	preview = Surface.new()
+	app.add_child(preview)
+	preview.configure_loft(profiles, loft_tension)
+	finish_preview()
+
 func quick_plane() -> void:
 	var frame := Transform3D(app.camera.global_basis, app.target + app.camera.global_basis.z * minf(creation_depth, app.distance - 0.5))
 	var height: float = app.view_height(app.distance - minf(creation_depth, app.distance - 0.5)) * 0.6
@@ -360,6 +380,8 @@ func refresh() -> void:
 	bend_button.visible = surface != null
 	length_slider.visible = surface == null
 	length_label.visible = surface == null
+	loft_tension_slider.visible = surface == null
+	loft_tension_label.visible = surface == null
 	create_button.disabled = surface != null
 	quick_button.disabled = surface != null
 	create_button.visible = surface == null
@@ -404,6 +426,18 @@ func build_controls(column: VBoxContainer) -> void:
 	length_slider.custom_minimum_size.y = 32
 	length_slider.value_changed.connect(func(value: float): sweep_length = value; length_label.text = Localization.translate("Bentangan profil") + ": %.2f" % value)
 	column.add_child(length_slider)
+	loft_tension_label = app.label_in(column, "Loft tension: 50%", 14)
+	loft_tension_slider = HSlider.new()
+	loft_tension_slider.min_value = 0.0
+	loft_tension_slider.max_value = 1.0
+	loft_tension_slider.step = 0.05
+	loft_tension_slider.value = loft_tension
+	loft_tension_slider.custom_minimum_size.y = 32
+	loft_tension_slider.value_changed.connect(func(value: float):
+		loft_tension = value
+		loft_tension_label.text = Localization.translate("Loft tension") + ": %d%%" % roundi(value * 100.0)
+	)
+	column.add_child(loft_tension_slider)
 	bend_button = app.button_in(column, "Bend: gambar arah baru", start_bend)
 	bend_button.tooltip_text = Localization.translate("Garis baru mengganti arah bentangan dari tepi oranye. Tinta yang sudah ada tetap di tempat.")
 	create_button = app.button_in(creation_actions, "Buat bidang: tarik area", start_placing)

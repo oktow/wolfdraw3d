@@ -25,6 +25,8 @@ var compact_guide_hold_timer: Timer
 var compact_guide_long_pressed := false
 var compact_nav_button: Button
 var compact_select_button: Button
+var compact_duplicate_button: Button
+var compact_loft_button: Button
 var select_mode_menu: PopupMenu
 var select_mode_timer: Timer
 var select_mode_long_pressed := false
@@ -33,6 +35,17 @@ var selection_overlay: Control
 var compact_erase_button: Button
 var compact_undo_button: Button
 var compact_redo_button: Button
+var compact_brush_button: Button
+var compact_color_button: ColorPickerButton
+var compact_radius_button: Button
+var compact_opacity_button: Button
+var compact_shape_button: Button
+var brush_tool_menu: PopupMenu
+var brush_tool_timer: Timer
+var brush_tool_long_pressed := false
+var compact_shape_menu: PopupMenu
+var compact_radius_popup: PopupPanel
+var compact_opacity_popup: PopupPanel
 var transform_joystick: Control
 var transform_joystick_button: Button
 var transform_mode_menu: PopupMenu
@@ -234,7 +247,19 @@ func set_projection(index: int) -> void:
 	cancel_input()
 	camera.projection = Camera3D.PROJECTION_ORTHOGONAL if index == 1 else Camera3D.PROJECTION_PERSPECTIVE
 	projection_picker.select(index)
+	update_projection_icon()
 	update_camera()
+
+func update_projection_icon() -> void:
+	if projection_picker == null:
+		return
+	var is_orthographic := camera.projection == Camera3D.PROJECTION_ORTHOGONAL
+	projection_picker.icon = Icons.texture("orthographic" if is_orthographic else "perspective")
+	projection_picker.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	projection_picker.expand_icon = false
+	projection_picker.add_theme_constant_override("icon_max_width", 24)
+	projection_picker.tooltip_text = Localization.translate("Orthographic" if is_orthographic else "Perspective")
+	projection_picker.text = ""
 
 func view_height(depth: float = -1.0) -> float:
 	# Match projection scale at the orbit center when switching modes.
@@ -1004,7 +1029,7 @@ func refresh_language(node: Node = self) -> void:
 			var key: String = child.get_meta("locale_key")
 			if child is Label:
 				child.text = Localization.translate(key)
-			elif child is Button and child.icon == null:
+			elif child is Button and child.icon == null and not child.has_meta("icon_button"):
 				child.text = Localization.translate(key)
 		if child is OptionButton and child.has_meta("locale_items"):
 			var items: Array = child.get_meta("locale_items")
@@ -1047,23 +1072,85 @@ func set_brush_color(value: Color) -> void:
 	# Existing strokes retain their material; the chosen color applies to new ink.
 	ink = Color(value.r, value.g, value.b, 1.0)
 	brush_picker.color = ink
+	if compact_color_button != null:
+		compact_color_button.color = ink
 	ink_label.text = Localization.translate("Warna") + "  #" + ink.to_html(false).to_upper()
+
+func loft_selected() -> void:
+	finish_stroke()
+	var profiles: Array[PackedVector3Array] = []
+	for stroke in selected_strokes:
+		if is_instance_valid(stroke) and stroke.points.size() >= 2:
+			profiles.append(stroke.points.duplicate())
+	if profiles.size() < 2:
+		status.text = Localization.translate("Pilih minimal dua stroke untuk Loft.")
+		return
+	guides.create_loft(profiles)
+
+func show_compact_popup(popup: PopupPanel, source: Control) -> void:
+	popup.position = Vector2i(source.global_position + Vector2(0, source.size.y + 6))
+	popup.popup()
+
+func build_compact_value_popup(title_key: String, value_text: String, minimum: float, maximum: float, step: float, value: float, changed: Callable) -> PopupPanel:
+	var popup := PopupPanel.new()
+	popup.add_theme_stylebox_override("panel", style(Color("18232d")))
+	var column := VBoxContainer.new()
+	column.custom_minimum_size = Vector2(220, 0)
+	column.add_theme_constant_override("separation", 8)
+	popup.add_child(column)
+	var label := label_in(column, title_key, 14)
+	label.text = value_text
+	var slider := HSlider.new()
+	slider.min_value = minimum
+	slider.max_value = maximum
+	slider.step = step
+	slider.value = value
+	slider.custom_minimum_size = Vector2(200, 36)
+	slider.value_changed.connect(func(new_value: float):
+		changed.call(new_value)
+	)
+	column.add_child(slider)
+	compact_toolbar.get_parent().add_child(popup)
+	return popup
 
 func toggle_menu() -> void:
 	finish_stroke()
 	menu_visible = not menu_visible
 	brush_picker.get_popup().hide()
+	if compact_color_button != null:
+		compact_color_button.get_popup().hide()
 	compact_guide_menu.hide()
 	var focused := get_viewport().gui_get_focus_owner()
 	if focused != null:
 		focused.release_focus()
 	for panel in menu_panels:
 		panel.visible = menu_visible
-	show_menu_button.visible = not menu_visible
+	show_menu_button.visible = true
+	show_menu_button.tooltip_text = Localization.translate("Sembunyikan semua menu") if menu_visible else Localization.translate("Tampilkan kembali semua menu (U)")
 	compact_finger_button.visible = not menu_visible
 	compact_help_button.visible = not menu_visible
 	compact_toolbar.visible = not menu_visible
-	view_controls.offset_top = 112 if menu_visible else 20
+	if menu_visible:
+		view_controls.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+		view_controls.offset_left = -148
+		view_controls.offset_right = 148
+		view_controls.offset_top = 20
+	else:
+		view_controls.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+		view_controls.offset_left = -390
+		view_controls.offset_right = -92
+		view_controls.offset_top = 20
+
+func show_compact_shape_menu() -> void:
+	compact_shape_menu.position = Vector2i(compact_shape_button.global_position + Vector2(0, compact_shape_button.size.y + 6))
+	compact_shape_menu.popup()
+
+func select_compact_shape(index: int) -> void:
+	if shape_picker == null or index < 0 or index >= shape_picker.item_count:
+		return
+	shape_picker.select(index)
+	finish_stroke()
+	shape_assist.mode = ["off", "auto", "line", "circle", "ellipse", "curve"][index]
 
 func build_ui() -> void:
 	var layer := CanvasLayer.new()
@@ -1230,13 +1317,21 @@ func build_ui() -> void:
 	status = label_in(foot_column, "")
 	label_in(foot_column, "1 jari: putar / gambar   •   2 jari: pan / zoom   •   ? Panduan ikon", 14).modulate = Color("8da4b1")
 	show_menu_button = button_in(root, "Menu  U", toggle_menu)
-	show_menu_button.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
-	show_menu_button.offset_left = 20
-	show_menu_button.offset_right = 68
-	show_menu_button.offset_top = -62
-	show_menu_button.offset_bottom = -18
+	show_menu_button.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	show_menu_button.offset_left = -82
+	show_menu_button.offset_right = -20
+	show_menu_button.offset_top = 20
+	show_menu_button.offset_bottom = 68
+	show_menu_button.text = ""
+	show_menu_button.custom_minimum_size.x = 48
+	show_menu_button.custom_minimum_size.y = 48
+	show_menu_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	show_menu_button.add_theme_constant_override("icon_max_width", 24)
+	show_menu_button.set_meta("icon_button", true)
+	show_menu_button.z_index = 100
+	Icons.apply(show_menu_button, "Menu U")
+	show_menu_button.tooltip_text = Localization.translate("Open color, groups, sequence, and project tools")
 	show_menu_button.tooltip_text = Localization.translate("Tampilkan kembali semua menu (U)")
-	show_menu_button.hide()
 	sequence_exit_button = button_in(root, "Stop Playback", stop_sequence_playback)
 	sequence_exit_button.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
 	sequence_exit_button.offset_left = -190
@@ -1250,7 +1345,7 @@ func build_ui() -> void:
 	compact_toolbar.offset_left = 20
 	compact_toolbar.offset_top = 20
 	compact_toolbar.add_theme_constant_override("separation", 8)
-	compact_toolbar.hide()
+	compact_toolbar.show()
 	compact_draw_button = button_in(compact_toolbar, "Gambar B", set_navigation.bind(false))
 	compact_guide_button = button_in(compact_toolbar, "Buat bidang: tarik area", compact_guide_pressed)
 	compact_guide_button.button_down.connect(start_compact_guide_hold)
@@ -1259,11 +1354,84 @@ func build_ui() -> void:
 	compact_select_button = button_in(compact_toolbar, "Pilih V", set_tool.bind("select"))
 	compact_select_button.button_down.connect(start_select_mode_hold)
 	compact_select_button.button_up.connect(end_select_mode_hold)
+	compact_duplicate_button = button_in(compact_toolbar, "Duplikat", duplicate_selected)
+	compact_loft_button = button_in(compact_toolbar, "Loft", loft_selected)
 	compact_erase_button = button_in(compact_toolbar, "Hapus E", set_tool.bind("erase"))
 	compact_undo_button = button_in(compact_toolbar, "Undo", undo)
 	compact_redo_button = button_in(compact_toolbar, "Redo", redo)
 	compact_mirror_button = button_in(compact_toolbar, "Mirror", toggle_mirror_menu)
 	compact_mirror_button.toggle_mode = true
+	compact_brush_button = button_in(compact_toolbar, "Pena", set_tool.bind("draw"))
+	compact_brush_button.button_down.connect(start_brush_tool_hold)
+	compact_brush_button.button_up.connect(end_brush_tool_hold)
+	compact_brush_button.custom_minimum_size.x = 48
+	compact_brush_button.text = ""
+	compact_brush_button.icon = Icons.texture("pen")
+	compact_brush_button.tooltip_text = Localization.translate("Pilih jenis brush")
+	compact_toolbar.move_child(compact_guide_button, 0)
+	compact_toolbar.move_child(compact_brush_button, 1)
+	compact_toolbar.move_child(compact_duplicate_button, 5)
+	compact_toolbar.move_child(compact_loft_button, 6)
+	for tool_button in [compact_guide_button, compact_brush_button, compact_draw_button, compact_nav_button, compact_select_button, compact_duplicate_button, compact_loft_button, compact_erase_button]:
+		tool_button.custom_minimum_size = Vector2(48, 48)
+		tool_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		tool_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		tool_button.expand_icon = false
+		tool_button.add_theme_constant_override("icon_max_width", 24)
+		tool_button.set_meta("icon_button", true)
+	for icon_button in [compact_guide_button, compact_draw_button, compact_nav_button, compact_select_button, compact_duplicate_button, compact_loft_button, compact_erase_button]:
+		icon_button.text = ""
+	compact_undo_button.text = ""
+	compact_redo_button.text = ""
+	compact_mirror_button.text = ""
+	Icons.apply(compact_undo_button, "Undo")
+	Icons.apply(compact_redo_button, "Redo")
+	Icons.apply(compact_mirror_button, "Mirror")
+	Icons.apply(compact_duplicate_button, "Duplikat")
+	Icons.apply(compact_loft_button, "Loft")
+	compact_color_button = ColorPickerButton.new()
+	compact_color_button.color = ink
+	compact_color_button.edit_alpha = false
+	compact_color_button.custom_minimum_size = Vector2(48, 44)
+	compact_color_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	compact_color_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	compact_color_button.tooltip_text = Localization.translate("Pilih warna brush")
+	compact_color_button.color_changed.connect(set_brush_color)
+	compact_toolbar.add_child(compact_color_button)
+	compact_toolbar.move_child(compact_color_button, 2)
+	compact_radius_button = button_in(compact_toolbar, "Radius", func(): show_compact_popup(compact_radius_popup, compact_radius_button))
+	compact_opacity_button = button_in(compact_toolbar, "Opacity brush", func(): show_compact_popup(compact_opacity_popup, compact_opacity_button))
+	compact_shape_button = button_in(compact_toolbar, "Draw Shape", show_compact_shape_menu)
+	for setting_button in [compact_radius_button, compact_opacity_button, compact_shape_button]:
+		setting_button.custom_minimum_size = Vector2(48, 48)
+		setting_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		setting_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		setting_button.expand_icon = false
+		setting_button.add_theme_constant_override("icon_max_width", 24)
+		setting_button.text = ""
+		setting_button.set_meta("icon_button", true)
+	compact_toolbar.move_child(compact_radius_button, 3)
+	compact_toolbar.move_child(compact_opacity_button, 4)
+	compact_toolbar.move_child(compact_shape_button, 5)
+	compact_radius_popup = build_compact_value_popup("Radius", Localization.translate("Radius") + "  %.3f" % brush_radius, 0.015, 0.12, 0.005, brush_radius, func(value: float):
+		brush_radius = value
+		size_label.text = Localization.translate("Radius") + "  %.3f" % value
+	)
+	compact_opacity_popup = build_compact_value_popup("Opacity brush", Localization.translate("Opacity brush") + ": %d%%" % roundi(brush_opacity * 100.0), 0.05, 1.0, 0.05, brush_opacity, func(value: float):
+		brush_opacity = value
+	)
+	compact_shape_menu = PopupMenu.new()
+	var compact_shape_items := ["Draw Shape: mati", "Draw Shape: otomatis", "Bentuk: garis", "Bentuk: lingkaran", "Bentuk: elips", "Bentuk: kurva"]
+	for index in compact_shape_items.size():
+		compact_shape_menu.add_item(Localization.translate(compact_shape_items[index]), index)
+	compact_shape_menu.set_meta("locale_items", compact_shape_items)
+	compact_shape_menu.id_pressed.connect(select_compact_shape)
+	compact_toolbar.get_parent().add_child(compact_shape_menu)
+	Icons.apply(compact_radius_button, "Radius")
+	Icons.apply(compact_opacity_button, "Opacity brush")
+	Icons.apply(compact_shape_button, "Draw Shape")
+	for setting_button in [compact_radius_button, compact_opacity_button, compact_shape_button]:
+		setting_button.expand_icon = false
 	select_mode_menu = PopupMenu.new()
 	var select_mode_items := ["Tap: tambah/hapus", "Rectangle", "Lasso"]
 	for item in select_mode_items:
@@ -1299,30 +1467,50 @@ func build_ui() -> void:
 	root.add_child(compact_guide_menu)
 	compact_finger_button = button_in(root, "Jari: putar", func(): set_finger_drawing(not finger_drawing))
 	compact_finger_button.toggle_mode = true
-	compact_finger_button.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
-	compact_finger_button.offset_left = 76
-	compact_finger_button.offset_right = 124
-	compact_finger_button.offset_top = -62
-	compact_finger_button.offset_bottom = -18
+	compact_finger_button.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	compact_finger_button.offset_left = -210
+	compact_finger_button.offset_right = -162
+	compact_finger_button.offset_top = 20
+	compact_finger_button.offset_bottom = 68
+	compact_finger_button.text = "☝"
+	compact_finger_button.set_meta("icon_button", true)
 	compact_finger_button.hide()
 	compact_help_button = button_in(root, "Panduan ikon", show_icon_help)
-	compact_help_button.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
-	compact_help_button.offset_left = 132
-	compact_help_button.offset_right = 180
-	compact_help_button.offset_top = -62
-	compact_help_button.offset_bottom = -18
+	compact_help_button.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	compact_help_button.offset_left = -154
+	compact_help_button.offset_right = -106
+	compact_help_button.offset_top = 20
+	compact_help_button.offset_bottom = 68
+	compact_help_button.text = "?"
+	compact_help_button.set_meta("icon_button", true)
+	compact_help_button.tooltip_text = Localization.translate("Panduan ikon")
 	compact_help_button.hide()
+	brush_tool_menu = PopupMenu.new()
+	var brush_tool_items := ["Pena", "Pensil tekstur", "Kuas tekstur", "Tube 3D (lama)", "Lasso Fill", "Rectangle Fill"]
+	for item in brush_tool_items:
+		brush_tool_menu.add_item(Localization.translate(item))
+	brush_tool_menu.set_meta("locale_items", brush_tool_items)
+	brush_tool_menu.id_pressed.connect(select_brush_tool)
+	root.add_child(brush_tool_menu)
+	brush_tool_timer = Timer.new()
+	brush_tool_timer.one_shot = true
+	brush_tool_timer.wait_time = 0.35
+	brush_tool_timer.timeout.connect(show_brush_tool_menu)
+	root.add_child(brush_tool_timer)
 	# Keep direct axis views accessible even with the main panels hidden.
 	view_controls = HBoxContainer.new()
 	root.add_child(view_controls)
-	view_controls.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
-	view_controls.offset_left = -148
-	view_controls.offset_right = 148
-	view_controls.offset_top = 112
-	view_controls.add_theme_constant_override("separation", 8)
+	view_controls.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	view_controls.offset_left = -390
+	view_controls.offset_right = -92
+	view_controls.offset_top = 20
+	view_controls.z_index = 90
+	view_controls.add_theme_constant_override("separation", 12)
 	view_menu = MenuButton.new()
 	view_menu.flat = false
 	view_menu.focus_mode = Control.FOCUS_NONE
+	view_menu.custom_minimum_size = Vector2(48, 48)
+	view_menu.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	view_controls.add_child(view_menu)
 	Icons.apply(view_menu, "Tampak")
 	var views := ["X+ Kanan", "Y+ Atas", "Z+ Depan", "X- Kiri", "Y- Bawah", "Z- Belakang"]
@@ -1331,17 +1519,27 @@ func build_ui() -> void:
 	view_menu.get_popup().add_theme_constant_override("v_separation", 22)
 	view_menu.get_popup().id_pressed.connect(func(index: int): snap_view(VIEW_AXES[index]))
 	projection_picker = OptionButton.new()
-	projection_picker.custom_minimum_size = Vector2(182, 44)
+	projection_picker.custom_minimum_size = Vector2(48, 48)
 	projection_picker.focus_mode = Control.FOCUS_NONE
-	projection_picker.add_item(Localization.translate("Perspektif"))
-	projection_picker.add_item(Localization.translate("Ortografis"))
-	projection_picker.set_meta("locale_items", ["Perspektif", "Ortografis"])
+	projection_picker.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	projection_picker.add_item(Localization.translate("Perspective"))
+	projection_picker.add_item(Localization.translate("Orthographic"))
+	projection_picker.set_meta("locale_items", ["Perspective", "Orthographic"])
 	projection_picker.item_selected.connect(set_projection)
 	view_controls.add_child(projection_picker)
 	projection_picker.get_popup().add_theme_constant_override("v_separation", 22)
-	button_in(view_controls, "Reset kamera", func(): target = Vector3.ZERO; distance = 12; yaw = 0; pitch = 0; update_camera())
+	update_projection_icon()
+	var reset_camera_button := button_in(view_controls, "Reset kamera", func(): target = Vector3.ZERO; distance = 12; yaw = 0; pitch = 0; update_camera())
+	reset_camera_button.text = ""
+	Icons.apply(reset_camera_button, "Reset kamera")
+	reset_camera_button.custom_minimum_size = Vector2(48, 48)
+	reset_camera_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	reset_camera_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	reset_camera_button.expand_icon = false
+	reset_camera_button.add_theme_constant_override("icon_max_width", 24)
 	root.add_child(eraser)
 	eraser.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	toggle_menu()
 
 func start_compact_guide_hold() -> void:
 	compact_guide_long_pressed = false
@@ -1356,6 +1554,33 @@ func compact_guide_pressed() -> void:
 		compact_guide_long_pressed = false
 		return
 	guides.start_placing()
+
+func start_brush_tool_hold() -> void:
+	brush_tool_long_pressed = false
+	brush_tool_timer.start()
+
+func end_brush_tool_hold() -> void:
+	if not brush_tool_long_pressed:
+		brush_tool_timer.stop()
+		set_tool("draw")
+
+func show_brush_tool_menu() -> void:
+	brush_tool_long_pressed = true
+	refresh_popup_language(brush_tool_menu)
+	brush_tool_menu.position = Vector2i(compact_brush_button.global_position + Vector2(0, compact_brush_button.size.y))
+	brush_tool_menu.popup()
+
+func select_brush_tool(id: int) -> void:
+	var kinds := ["pen", "pencil", "brush", "tube", "lasso_fill", "rectangle_fill"]
+	var icons := ["pen", "pencil", "brush", "tube", "lasso_fill", "rectangle_fill"]
+	if id < 0 or id >= kinds.size():
+		return
+	brush_kind = kinds[id]
+	compact_brush_button.text = ""
+	compact_brush_button.icon = Icons.texture(icons[id])
+	brush_tool_long_pressed = false
+	set_tool("draw")
+	status.text = Localization.translate("Brush") + ": " + Localization.translate(["Pena", "Pensil tekstur", "Kuas tekstur", "Tube 3D (lama)", "Lasso Fill", "Rectangle Fill"][id])
 
 func show_compact_guide_menu() -> void:
 	compact_guide_long_pressed = true
@@ -1984,6 +2209,7 @@ func build_edit_panel(root: Control) -> void:
 	selection_label = label_in(column, "Belum ada seleksi", 14)
 	button_in(edit_row, "Pindah ke grup aktif", move_selected_to_group)
 	button_in(edit_row, "Duplikat", duplicate_selected)
+	button_in(edit_row, "Loft", loft_selected)
 	button_in(edit_row, "Hapus pilihan", delete_selected)
 	column.add_child(HSeparator.new())
 	var liquify_title := label_in(column, "LIQUIFY", 13)
@@ -2050,6 +2276,7 @@ func apply_sequence_shot(shot: Dictionary) -> void:
 	camera.projection = int(shot.projection)
 	if projection_picker != null:
 		projection_picker.select(int(shot.projection))
+		update_projection_icon()
 	update_camera()
 
 func select_sequence_shot(id: int) -> void:
@@ -2134,6 +2361,7 @@ func interpolate_sequence_shot(from: Dictionary, to: Dictionary, amount: float) 
 	camera.projection = int(from.projection) if amount < 0.5 else int(to.projection)
 	if projection_picker != null:
 		projection_picker.select(int(camera.projection))
+		update_projection_icon()
 	update_camera()
 
 func sequence_previous_shot() -> void:

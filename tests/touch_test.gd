@@ -117,8 +117,9 @@ func run(app: Node) -> bool:
 	app._notification(MainLoop.NOTIFICATION_APPLICATION_PAUSED)
 	assert(app.touches.is_empty() and not app.pair_pending)
 	app.set_finger_drawing(true)
-	# Both gesture modes remain available when all other menu panels are hidden.
-	app.toggle_menu()
+	# Normalize to the icon-rail state before testing compact gesture controls.
+	if app.menu_visible:
+		app.toggle_menu()
 	assert(app.compact_finger_button.visible)
 	app.compact_finger_button.pressed.emit()
 	assert(not app.finger_drawing)

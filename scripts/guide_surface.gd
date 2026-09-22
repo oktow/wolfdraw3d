@@ -22,6 +22,49 @@ func configure_profile(profile: PackedVector3Array, depth: Vector3) -> void:
 		vertices.append(point + depth)
 	rebuild()
 
+func configure_loft(profiles: Array[PackedVector3Array], tension: float = 0.5) -> void:
+	kind = "mesh"
+	rows = profiles.size()
+	columns = 0
+	for profile in profiles:
+		columns = maxi(columns, profile.size())
+	columns = clampi(columns, 2, 256)
+	var sampled_profiles: Array[PackedVector3Array] = []
+	for profile in profiles:
+		sampled_profiles.append(_resample_profile(profile, columns))
+	vertices.clear()
+	for row in profiles.size():
+		var sampled: PackedVector3Array = sampled_profiles[row]
+		for index in sampled.size():
+			var point: Vector3 = sampled[index]
+			if tension > 0.0 and profiles.size() > 2:
+				if row > 0 and row < profiles.size() - 1:
+					var before := sampled_profiles[row - 1][index]
+					var after := sampled_profiles[row + 1][index]
+					point = point.lerp((before + point + after) / 3.0, clampf(tension, 0.0, 1.0) * 0.35)
+			vertices.append(point)
+	rebuild()
+
+func _resample_profile(profile: PackedVector3Array, count: int) -> PackedVector3Array:
+	if profile.size() <= 2:
+		return profile
+	var lengths := PackedFloat32Array()
+	lengths.resize(profile.size())
+	var total := 0.0
+	for index in range(1, profile.size()):
+		total += profile[index - 1].distance_to(profile[index])
+		lengths[index] = total
+	var result := PackedVector3Array()
+	var segment := 1
+	for target_index in count:
+		var target := total * float(target_index) / float(count - 1)
+		while segment < lengths.size() - 1 and lengths[segment] < target:
+			segment += 1
+		var span := lengths[segment] - lengths[segment - 1]
+		var amount := 0.0 if span <= 0.00001 else (target - lengths[segment - 1]) / span
+		result.append(profile[segment - 1].lerp(profile[segment], amount))
+	return result
+
 func edge_points() -> PackedVector3Array:
 	if kind == "plane":
 		return PackedVector3Array([corners[0], corners[1]])
