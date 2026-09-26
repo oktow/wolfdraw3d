@@ -57,6 +57,9 @@ func run(app: Node3D) -> bool:
 	draw_loop(app, middle + Vector2(40, 0), 60.0)
 	assert(paint_count(app) == 1)
 	assert(paint_polys_total(app) >= 1)
+	# A disjoint same-color loop must terminate and stay in the same node.
+	draw_loop(app, middle + Vector2(150, 0), 30.0)
+	assert(paint_count(app) == 1)
 	assert(Store.validate(app.document()).is_empty())
 	app.undo()
 	assert(paint_count(app) == 1)
@@ -70,7 +73,7 @@ func run(app: Node3D) -> bool:
 	assert(paint_count(app) == 1)
 	assert(Store.validate(app.document()).is_empty())
 	app.brush_kind = "pen"
-	for i in cleanups + 2:
+	for i in cleanups + 3:
 		app.undo()
 	assert(app.document() == before)
 	print("PAINT PASS: closed loop fill, same-color union, eraser blob delete, undo restore")

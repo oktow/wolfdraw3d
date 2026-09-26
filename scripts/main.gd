@@ -956,16 +956,27 @@ func paint_origin_3d(stroke: MeshInstance3D) -> Vector3:
 	return (stroke.paint_polys[0] as PackedVector3Array)[0]
 
 func merge_poly_list(polys: Array, extra: PackedVector2Array) -> Array:
+	# Pairwise union with progress tracking: disjoint polygons stay separate
+	# (one node, several rings) instead of looping forever.
 	var result: Array = polys.duplicate()
 	result.append(extra)
-	while result.size() > 1:
-		var united := Geometry2D.merge_polygons(result[0], result[1])
-		result.pop_front()
-		result.pop_front()
-		for poly in united:
-			result.append(poly)
-		if united.is_empty():
-			break
+	var guard := 0
+	var merged_any := true
+	while merged_any and result.size() > 1 and guard < 64:
+		guard += 1
+		merged_any = false
+		var k := 0
+		while k < result.size() and not merged_any:
+			var m := k + 1
+			while m < result.size() and not merged_any:
+				var united := Geometry2D.merge_polygons(result[k], result[m])
+				if united.size() == 1:
+					result[k] = united[0]
+					result.remove_at(m)
+					merged_any = true
+				else:
+					m += 1
+			k += 1
 	return result
 
 func finish_stroke() -> void:
