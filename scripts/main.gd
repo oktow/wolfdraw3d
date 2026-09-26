@@ -823,7 +823,162 @@ func extend_stroke(screen: Vector2) -> void:
 		active.add_point(hit, guides.current().hit_normal)
 	stroke_screen = screen
 
+func remap_paint(stroke: MeshInstance3D, center: Vector3, rotation_basis: Basis, factor: float, offset: Vector3, reflection: Vector3 = Vector3.ONE) -> void:
+	# Keep merged fill polygons in step with the stroke boundary points.
+	if stroke.brush_kind != "paint":
+		return
+	for p in stroke.paint_polys.size():
+		var ring: PackedVector3Array = stroke.paint_polys[p]
+		for j in ring.size():
+			ring[j] = center + rotation_basis * ((ring[j] - center) * factor) * reflection + offset
+	if not stroke.paint_polys.is_empty():
+		stroke.points = (stroke.paint_polys[0] as PackedVector3Array).duplicate()
+
+func sync_paint_points(stroke: MeshInstance3D) -> void:
+	# Boundary points are the source of truth (liquify/undo paths).
+	if stroke.brush_kind == "paint" and not stroke.paint_polys.is_empty():
+		stroke.paint_polys[0] = stroke.points.duplicate()
+
+func paint_basis(normal: Vector3) -> Array:
+	var basis_x := normal.cross(Vector3.UP)
+	if basis_x.length_squared() < 0.01:
+		basis_x = normal.cross(Vector3.RIGHT)
+	basis_x = basis_x.normalized()
+	return [basis_x, normal.cross(basis_x).normalized()]
+
+func paint_to_2d(ring: PackedVector3Array, origin: Vector3, basis: Array) -> PackedVector2Array:
+	var flat := PackedVector2Array()
+	for point in ring:
+		var delta: Vector3 = point - origin
+		flat.append(Vector2(delta.dot(basis[0]), delta.dot(basis[1])))
+	return flat
+
+func paint_to_3d(flat: PackedVector2Array, origin: Vector3, basis: Array) -> PackedVector3Array:
+	var ring := PackedVector3Array()
+	for point in flat:
+		ring.append(origin + basis[0] * point.x + basis[1] * point.y)
+	return ring
+
+func paint_merge_target(ink_color: Color, normal: Vector3, use_opacity: float) -> MeshInstance3D:
+	# Same look + same plane: group, rgb, opacity, parallel normals, 1cm coplanar.
+	for stroke in strokes:
+		if stroke.brush_kind != "paint" or stroke.group_id != active_group:
+			continue
+		if not is_equal_approx(stroke.ink.r, ink_color.r) or not is_equal_approx(stroke.ink.g, ink_color.g) or not is_equal_approx(stroke.ink.b, ink_color.b):
+			continue
+		if not is_equal_approx(stroke.opacity, use_opacity):
+			continue
+		var old_normal: Vector3 = stroke.plane_normal.normalized()
+		if old_normal.dot(normal) < 0.9995:
+			continue
+		var offset: float = absf((stroke_center(stroke) - active.points[0]).dot(normal))
+		if offset > 0.01:
+			continue
+		return stroke
+	return null
+
+func stroke_center(stroke: MeshInstance3D) -> Vector3:
+	if stroke.paint_polys.is_empty():
+		return stroke.points[0] if not stroke.points.is_empty() else Vector3.ZERO
+	var center := Vector3.ZERO
+	var count := 0
+	for poly in stroke.paint_polys:
+		for point in poly:
+			center += point
+			count += 1
+	return center / maxf(1.0, float(count))
+
+func finish_paint_stroke() -> void:
+	# Freehand loop becomes one fill; same-color paint on the same plane
+	# unions into a single mesh so coloring has no per-stroke seams.
+	var ring: PackedVector3Array = active.points.duplicate()
+	if ring.size() < 3:
+		active.queue_free()
+		active = null
+		return
+	if ring[0].distance_to(ring[-1]) > active.radius:
+		ring.append(ring[0])
+	var normal: Vector3 = active.plane_normal.normalized()
+	var basis := paint_basis(normal)
+	var flat := paint_to_2d(ring, ring[0], basis)
+	if Geometry2D.triangulate_polygon(flat).is_empty():
+		active.queue_free()
+		active = null
+		return
+	var target := paint_merge_target(active.ink, normal, active.opacity)
+	var merged := [flat]
+	if target != null:
+		# Union in the target's own 2D frame so every polygon shares one origin.
+		var origin: Vector3 = paint_origin_3d(target)
+		var old_basis := paint_basis(target.plane_normal.normalized())
+		merged = []
+		for poly in target.paint_polys:
+			merged.append(paint_to_2d(poly, origin, old_basis))
+		merged = merge_poly_list(merged, paint_to_2d(ring, origin, old_basis))
+		if merged.is_empty():
+			active.queue_free()
+			active = null
+			return
+	var total_points := 0
+	for poly in merged:
+		total_points += poly.size()
+	if sample_count() + total_points > Store.MAX_POINTS:
+		status.text = Localization.translate("Batas 200.000 titik tercapai.")
+		active.queue_free()
+		active = null
+		return
+	checkpoint()
+	if target != null:
+		var origin3: Vector3 = paint_origin_3d(target)
+		var basis3 := paint_basis(target.plane_normal.normalized())
+		target.paint_polys.clear()
+		for poly in merged:
+			var ring3 := paint_to_3d(poly, origin3, basis3)
+			if ring3.size() >= 3:
+				target.paint_polys.append(ring3)
+		if not target.paint_polys.is_empty():
+			target.points = target.paint_polys[0].duplicate()
+		target.rebuild()
+		active.queue_free()
+	else:
+		active.paint_polys = [ring]
+		active.points = ring.duplicate()
+		active.rebuild()
+		strokes.append(active)
+		mirror_stroke(active)
+	active = null
+	shape_assist.cancel()
+	changed()
+
+func paint_origin_3d(stroke: MeshInstance3D) -> Vector3:
+	if stroke.paint_polys.is_empty() or (stroke.paint_polys[0] as PackedVector3Array).is_empty():
+		return stroke.points[0] if not stroke.points.is_empty() else Vector3.ZERO
+	return (stroke.paint_polys[0] as PackedVector3Array)[0]
+
+func merge_poly_list(polys: Array, extra: PackedVector2Array) -> Array:
+	var result: Array = polys.duplicate()
+	result.append(extra)
+	while result.size() > 1:
+		var united := Geometry2D.merge_polygons(result[0], result[1])
+		result.pop_front()
+		result.pop_front()
+		for poly in united:
+			result.append(poly)
+		if united.is_empty():
+			break
+	return result
+
 func finish_stroke() -> void:
+	if active != null and active.brush_kind == "paint":
+		if shape_assist != null:
+			shape_assist.finalize()
+		if eraser != null:
+			eraser.finish()
+		if fill_active:
+			finish_fill()
+			return
+		finish_paint_stroke()
+		return
 	if shape_assist != null:
 		shape_assist.finalize()
 	if eraser != null:
@@ -936,6 +1091,7 @@ func mirror_stroke(source: MeshInstance3D) -> void:
 		# Mirror across the planes through the 3D cursor, not the origin.
 		for i in copy.points.size():
 			copy.points[i] = cursor_pos + (copy.points[i] - cursor_pos) * reflection
+		remap_paint(copy, cursor_pos, Basis.IDENTITY, 1.0, Vector3.ZERO, reflection)
 		copy.plane_normal = (copy.plane_normal * reflection).normalized()
 		for i in copy.sample_normals.size():
 			copy.sample_normals[i] = (copy.sample_normals[i] * reflection).normalized()
@@ -1108,7 +1264,7 @@ func drag_touch(event: InputEventScreenDrag) -> void:
 			# on drag, never on press, so holds and taps keep their old
 			# meaning. Fill tools join in: outside a guide they orbit, inside
 			# they fill as before.
-			if not touch_drew and active == null and not fill_active and guides.preview == null and not guides.placing and brush_kind in ["pen", "pencil", "brush", "marker", "flat", "tube", "lasso_fill", "rectangle_fill"] and touch_travel > TAP_TRAVEL_PX:
+			if not touch_drew and active == null and not fill_active and guides.preview == null and not guides.placing and brush_kind in ["pen", "pencil", "brush", "marker", "flat", "tube", "lasso_fill", "rectangle_fill", "paint"] and touch_travel > TAP_TRAVEL_PX:
 				touch_action = "orbit"
 				touch_drew = true
 				update_status()
@@ -1505,6 +1661,7 @@ func liquify_restore_baseline() -> void:
 	for stroke in liquify_baseline:
 		if is_instance_valid(stroke):
 			stroke.points = liquify_baseline[stroke].duplicate()
+			sync_paint_points(stroke)
 			stroke.rebuild()
 	liquify_changed = false
 	changed()
@@ -1529,6 +1686,7 @@ func liquify_compare_toggle() -> void:
 		for stroke in liquify_compare_preview:
 			if is_instance_valid(stroke):
 				stroke.points = liquify_compare_preview[stroke].duplicate()
+				sync_paint_points(stroke)
 				stroke.rebuild()
 		liquify_compare_preview.clear()
 	status.text = Localization.translate("Compare: before Liquify.") if liquify_compare else Localization.translate("Compare: Liquify result.")
@@ -1540,6 +1698,7 @@ func liquify_apply() -> void:
 		for stroke in liquify_compare_preview:
 			if is_instance_valid(stroke):
 				stroke.points = liquify_compare_preview[stroke].duplicate()
+				sync_paint_points(stroke)
 				stroke.rebuild()
 		liquify_compare = false
 	if liquify_changed:
@@ -1657,7 +1816,7 @@ func layout_context_rail() -> void:
 	context_rail.offset_bottom = half
 
 func rail_brush_icon() -> Texture2D:
-	var icons := {"pen": "pen", "pencil": "pencil", "brush": "brush", "marker": "marker", "flat": "flat", "tube": "tube", "lasso_fill": "lasso_fill", "rectangle_fill": "rectangle_fill"}
+	var icons := {"pen": "pen", "pencil": "pencil", "brush": "brush", "marker": "marker", "flat": "flat", "tube": "tube", "lasso_fill": "lasso_fill", "rectangle_fill": "rectangle_fill", "paint": "paint"}
 	return Icons.texture(icons.get(brush_kind, "pen"))
 
 func refresh_rail_draw_icons() -> void:
@@ -2009,11 +2168,11 @@ func build_ui() -> void:
 	column.add_child(radius_slider)
 	var brush_picker_type := OptionButton.new()
 	brush_picker_type.custom_minimum_size.y = 44
-	var brush_items := ["Pena", "Pensil tekstur", "Kuas tekstur", "Spidol datar", "Pena pipih", "Tube 3D (lama)", "Lasso Fill", "Rectangle Fill"]
+	var brush_items := ["Pena", "Pensil tekstur", "Kuas tekstur", "Spidol datar", "Pena pipih", "Tube 3D (lama)", "Lasso Fill", "Rectangle Fill", "Kuas warna"]
 	for title in brush_items:
 		brush_picker_type.add_item(Localization.translate(title))
 	brush_picker_type.set_meta("locale_items", brush_items)
-	brush_picker_type.item_selected.connect(func(index: int): brush_kind = ["pen", "pencil", "brush", "marker", "flat", "tube", "lasso_fill", "rectangle_fill"][index]; refresh_nib_ui(); refresh_rail_draw_icons())
+	brush_picker_type.item_selected.connect(func(index: int): brush_kind = ["pen", "pencil", "brush", "marker", "flat", "tube", "lasso_fill", "rectangle_fill", "paint"][index]; refresh_nib_ui(); refresh_rail_draw_icons())
 	brush_picker_type.select(0)
 	column.add_child(brush_picker_type)
 	nib_label = label_in(column, "Sudut nib", 14)
@@ -2325,7 +2484,7 @@ func build_ui() -> void:
 	compact_help_button.tooltip_text = Localization.translate("Panduan ikon")
 	compact_help_button.hide()
 	brush_tool_menu = PopupMenu.new()
-	var brush_tool_items := ["Pena", "Pensil tekstur", "Kuas tekstur", "Spidol datar", "Pena pipih", "Tube 3D (lama)", "Lasso Fill", "Rectangle Fill"]
+	var brush_tool_items := ["Pena", "Pensil tekstur", "Kuas tekstur", "Spidol datar", "Pena pipih", "Tube 3D (lama)", "Lasso Fill", "Rectangle Fill", "Kuas warna"]
 	for item in brush_tool_items:
 		brush_tool_menu.add_check_item(Localization.translate(item))
 	brush_tool_menu.set_meta("locale_items", brush_tool_items)
@@ -2440,7 +2599,7 @@ func select_guide_type(id: int) -> void:
 	refresh_top_guide_icon()
 
 func brush_kind_index() -> int:
-	var kinds := ["pen", "pencil", "brush", "marker", "flat", "tube", "lasso_fill", "rectangle_fill"]
+	var kinds := ["pen", "pencil", "brush", "marker", "flat", "tube", "lasso_fill", "rectangle_fill", "paint"]
 	return maxi(0, kinds.find(brush_kind))
 
 func refresh_brush_menu_checks() -> void:
@@ -2497,14 +2656,14 @@ func show_rail_select_mode() -> void:
 	select_mode_menu.popup()
 
 func select_brush_tool(id: int) -> void:
-	var kinds := ["pen", "pencil", "brush", "marker", "flat", "tube", "lasso_fill", "rectangle_fill"]
+	var kinds := ["pen", "pencil", "brush", "marker", "flat", "tube", "lasso_fill", "rectangle_fill", "paint"]
 	if id < 0 or id >= kinds.size():
 		return
 	brush_kind = kinds[id]
 	set_tool("draw")
 	refresh_nib_ui()
 	refresh_rail_draw_icons()
-	status.text = Localization.translate("Brush") + ": " + Localization.translate(["Pena", "Pensil tekstur", "Kuas tekstur", "Spidol datar", "Pena pipih", "Tube 3D (lama)", "Lasso Fill", "Rectangle Fill"][id])
+	status.text = Localization.translate("Brush") + ": " + Localization.translate(["Pena", "Pensil tekstur", "Kuas tekstur", "Spidol datar", "Pena pipih", "Tube 3D (lama)", "Lasso Fill", "Rectangle Fill", "Kuas warna"][id])
 
 func smoke_test() -> void:
 	get_tree().create_timer(20).timeout.connect(func(): push_error("TEST TIMEOUT / assertion failure"); get_tree().quit(1))
@@ -3012,6 +3171,7 @@ func mirror_selected() -> void:
 			continue
 		for i in stroke.points.size():
 			stroke.points[i] = cursor_pos + (stroke.points[i] - cursor_pos) * reflection
+		remap_paint(stroke, cursor_pos, Basis.IDENTITY, 1.0, Vector3.ZERO, reflection)
 		stroke.plane_normal = (stroke.plane_normal * reflection).normalized()
 		for i in stroke.sample_normals.size():
 			stroke.sample_normals[i] = (stroke.sample_normals[i] * reflection).normalized()
@@ -3053,6 +3213,7 @@ func transform_group(offset: Vector3, angle: float = 0.0, factor: float = 1.0, r
 	for stroke in members:
 		for i in stroke.points.size():
 			stroke.points[i] = center + rotation_basis * (stroke.points[i] - center) * factor + offset
+		remap_paint(stroke, center, rotation_basis, factor, offset)
 		stroke.plane_normal = (rotation_basis * stroke.plane_normal).normalized()
 		for i in stroke.sample_normals.size():
 			stroke.sample_normals[i] = (rotation_basis * stroke.sample_normals[i]).normalized()

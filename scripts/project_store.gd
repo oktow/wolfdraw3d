@@ -69,10 +69,27 @@ static func validate(data: Variant) -> String:
 			if not valid_number(channel, 1) or channel < 0:
 				return "Nilai warna tidak valid."
 		if stroke.has("brush"):
-			if stroke.brush not in ["pen", "pencil", "brush", "marker", "flat"]:
+			if stroke.brush not in ["pen", "pencil", "brush", "marker", "flat", "paint", "lasso_fill", "rectangle_fill"]:
 				return "Jenis brush tidak valid."
 			if stroke.brush == "marker" and not valid_number(stroke.get("nib")):
 				return "Sudut nib tidak valid."
+			if stroke.brush == "paint":
+				if not valid_number(stroke.get("opacity"), 1) or stroke.opacity < 0:
+					return "Opacity brush tidak valid."
+				var polys: Variant = stroke.get("paint")
+				if not polys is Array or polys.is_empty():
+					return "Poligon kuas warna tidak valid."
+				for poly in polys:
+					if not poly is Array or poly.size() < 3:
+						return "Poligon kuas warna tidak valid."
+					for point in poly:
+						if not valid_vector(point):
+							return "Koordinat kuas warna tidak valid."
+				continue
+			if stroke.brush == "lasso_fill" or stroke.brush == "rectangle_fill":
+				if not valid_number(stroke.get("opacity"), 1) or stroke.opacity < 0:
+					return "Opacity brush tidak valid."
+				continue
 			if not valid_number(stroke.get("opacity"), 1) or stroke.opacity < 0 or not valid_number(stroke.get("taper"), 0.5) or stroke.taper < 0:
 				return "Opacity/taper brush tidak valid."
 			if not stroke.get("normals") is Array or stroke.normals.size() != points.size() or not stroke.get("uv") is Array or stroke.uv.size() != points.size():

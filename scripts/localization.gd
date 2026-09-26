@@ -10,7 +10,7 @@ const TEXT := {
 		"Jari: putar": "Finger: orbit", "Jari: gambar": "Finger: draw", "Pilih warna brush": "Brush color",
 		"Warna": "Color", "Warna seleksi diubah.": "Selection color changed.", "Radius": "Radius", "Pena": "Pen", "Pensil tekstur": "Textured pencil",
 		"Draw Shape": "Draw Shape",
-		"Kuas tekstur": "Textured brush", "Spidol datar": "Flat marker", "Pena pipih": "Flat pen", "Tube 3D (lama)": "3D tube (legacy)", "Lasso Fill": "Lasso Fill",
+		"Kuas tekstur": "Textured brush", "Spidol datar": "Flat marker", "Pena pipih": "Flat pen", "Tube 3D (lama)": "3D tube (legacy)", "Lasso Fill": "Lasso Fill", "Kuas warna": "Paint fill",
 		"Sudut nib": "Nib angle", "Pena mata pipih; lebar goresan mengikuti arah tarikan terhadap sudut nib.": "Flat-nib pen; stroke width follows the drag direction relative to the nib angle.",
 		"Ribbon datar solid; lebar konstan dan opak penuh.": "Solid flat ribbon; constant width and fully opaque.",
 		"Properti": "Properties", "Warna, opacity, dan radius brush dalam satu popup.": "Brush color, opacity, and radius in one popup.",

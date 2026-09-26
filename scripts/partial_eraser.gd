@@ -102,7 +102,35 @@ func world_fraction(a: Vector3, b: Vector3, t: float) -> float:
 	var zb: float = -app.camera.to_local(b).z
 	return t * za / ((1 - t) * zb + t * za)
 
+func paint_touched(stroke: MeshInstance3D, start: Vector2, end: Vector2) -> bool:
+	# Coloring blobs erase whole: any fill polygon touching the swept disk
+	# deletes the entire merged blob (no polygon fragmentation).
+	for poly in stroke.paint_polys:
+		var ring: PackedVector3Array = poly
+		var flat := PackedVector2Array()
+		for point in ring:
+			var local: Vector3 = app.camera.to_local(point)
+			if local.z > -app.camera.near:
+				return true
+			flat.append(app.camera.unproject_position(point))
+		if flat.size() < 3:
+			continue
+		if Geometry2D.is_point_in_polygon(start, flat) or Geometry2D.is_point_in_polygon(end, flat):
+			return true
+		for i in flat.size():
+			var a := flat[i]
+			var b := flat[(i + 1) % flat.size()]
+			if Geometry2D.segment_intersects_segment(a, b, start, end) != null:
+				return true
+			if Geometry2D.get_closest_point_to_segment(start, a, b).distance_to(start) <= radius:
+				return true
+			if Geometry2D.get_closest_point_to_segment(end, a, b).distance_to(end) <= radius:
+				return true
+	return false
+
 func split(stroke: MeshInstance3D, start: Vector2, end: Vector2) -> Dictionary:
+	if stroke.brush_kind == "paint":
+		return {"touched": paint_touched(stroke, start, end), "chunks": []}
 	var chunks: Array[Dictionary] = []
 	var current := PackedVector3Array()
 	var samples := PackedFloat32Array()

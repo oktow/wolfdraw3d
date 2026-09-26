@@ -12,6 +12,7 @@ const PATHS = {
 	"props": '<path d="M4 7h16 M4 12h16 M4 17h16"/><circle cx="15" cy="7" r="2.4"/><circle cx="9" cy="12" r="2.4"/><circle cx="17" cy="17" r="2.4"/>',
 	"lasso_fill": '<path d="M5 7q7-6 14 0t-7 8q-7 2-7-3t7-2q5 1 3 5 M8 18h8"/>',
 	"rectangle_fill": '<rect x="4" y="5" width="16" height="14" rx="1"/><path d="M4 9h16 M4 15h16 M9 5v14 M15 5v14"/>',
+	"paint": '<path d="M4 20 11 13 M10 4l9 9-6 6-9-9Z M15 3l3-1 3 3-1 3 M4 20l1-4"/>',
 	"radius": '<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2"/>',
 	"opacity": '<circle cx="12" cy="12" r="8"/><path d="M4 12h16"/>',
 	"draw_shape": '<path d="M4 18 9 5l4 8 7-2-5 7Z"/><circle cx="9" cy="5" r="1"/>',
@@ -119,6 +120,7 @@ const ACTIONS = {
 	,"Tube": ["tube", "Membuat guide tabung menjauhi kamera."]
 	,"Line": ["line", "Membuat guide strip tipis sebagai penggaris."]
 	,"Spidol datar": ["marker", "Pena mata pipih; lebar goresan mengikuti arah tarikan terhadap sudut nib."]
+	,"Kuas warna": ["paint", "Coretan bebas tertutup menjadi satu warna; warna sama pada bidang yang sama menyatu."]
 	,"Pena pipih": ["flat", "Ribbon datar solid; lebar konstan dan opak penuh."]
 	,"Properti": ["props", "Warna, opacity, dan radius brush dalam satu popup."]
 	,"Buat guide": ["add", "Membuka pilihan tipe guide baru."]

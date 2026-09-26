@@ -14,11 +14,19 @@ var path_uv := PackedFloat32Array()
 var uv_length := 0.0
 var nib_angle := deg_to_rad(45.0)
 const NIB_THIN := 0.15
+# Coloring brush: one merged fill made of 2D-projected polygons. `points`
+# stays a copy of the first polygon boundary for bounds/selection helpers.
+var paint_polys: Array = []
 var bounds := AABB()
 var defer_rebuild := false
 var last_rebuild_msec := -100000
 
 func copy_brush(source: MeshInstance3D, samples: PackedFloat32Array) -> void:
+	if source.brush_kind == "paint":
+		brush_kind = "paint"
+		paint_polys = source.paint_polys.duplicate(true)
+		opacity = source.opacity
+		return
 	brush_kind = source.brush_kind
 	opacity = source.opacity
 	taper = source.taper
@@ -166,6 +174,15 @@ func serialize() -> Dictionary:
 		samples.append([point.x, point.y, point.z])
 	var data := {"points": samples, "radius": radius, "color": [ink.r, ink.g, ink.b, ink.a],
 		"normal": [plane_normal.x, plane_normal.y, plane_normal.z], "group": group_id}
+	if brush_kind == "paint":
+		var polys := []
+		for poly in paint_polys:
+			var ring := []
+			for point in poly:
+				ring.append([point.x, point.y, point.z])
+			polys.append(ring)
+		data.merge({"brush": "paint", "opacity": opacity, "paint": polys})
+		return data
 	if brush_kind != "tube":
 		var normals := []
 		for normal in sample_normals:
@@ -184,6 +201,14 @@ func restore(data: Dictionary) -> void:
 	plane_normal = Vector3(data.normal[0], data.normal[1], data.normal[2])
 	group_id = int(data.group)
 	brush_kind = data.get("brush", "tube")
+	if brush_kind == "paint":
+		paint_polys.clear()
+		for poly in data.get("paint", []):
+			var ring := PackedVector3Array()
+			for point in poly:
+				ring.append(Vector3(point[0], point[1], point[2]))
+			if ring.size() >= 3:
+				paint_polys.append(ring)
 	nib_angle = float(data.get("nib", deg_to_rad(45.0)))
 	opacity = data.get("opacity", 1.0)
 	taper = data.get("taper", 0.15)
@@ -210,8 +235,62 @@ func add_point(point: Vector3, normal: Vector3 = Vector3.ZERO) -> void:
 		return
 	rebuild()
 
+func rebuild_paint() -> void:
+	# One flat mesh for every merged polygon; same lift as fills so stacked
+	# same-color paint never shows per-stroke seams.
+	if paint_polys.is_empty():
+		return
+	var normal := plane_normal.normalized() if plane_normal.length_squared() > 0.01 else Vector3.BACK
+	var vertices := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var uvs := PackedVector2Array()
+	var indices := PackedInt32Array()
+	for poly in paint_polys:
+		var ring: PackedVector3Array = poly
+		if ring.size() < 3:
+			continue
+		var basis_x := normal.cross(Vector3.UP)
+		if basis_x.length_squared() < 0.01:
+			basis_x = normal.cross(Vector3.RIGHT)
+		basis_x = basis_x.normalized()
+		var basis_y := normal.cross(basis_x).normalized()
+		var flat := PackedVector2Array()
+		for point in ring:
+			flat.append(Vector2((point - ring[0]).dot(basis_x), (point - ring[0]).dot(basis_y)))
+		var triangles := Geometry2D.triangulate_polygon(flat)
+		if triangles.is_empty():
+			continue
+		var base := vertices.size()
+		for point in ring:
+			vertices.append(point + normal * 0.001)
+			normals.append(normal)
+			uvs.append(Vector2(0.5, 0.5))
+		for index in triangles:
+			indices.append(base + int(index))
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	arrays[Mesh.ARRAY_INDEX] = indices
+	var result := ArrayMesh.new()
+	result.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	mesh = result
+	if not material_override is ShaderMaterial:
+		var material := ShaderMaterial.new()
+		material.shader = preload("res://scripts/ink.gdshader")
+		material_override = material
+	material_override.set_shader_parameter("ink_color", ink)
+	material_override.set_shader_parameter("opacity", opacity)
+	material_override.set_shader_parameter("brush_mode", 0)
+	cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
 func rebuild() -> void:
 	last_rebuild_msec = Time.get_ticks_msec()
+	if brush_kind == "paint":
+		rebuild_paint()
+		bounds = mesh.get_aabb() if mesh != null else AABB()
+		return
 	if points.size() < 2:
 		bounds = AABB()
 		return
