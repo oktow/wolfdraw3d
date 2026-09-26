@@ -179,10 +179,13 @@ func triangle_indices() -> PackedInt32Array:
 var grid := MeshInstance3D.new()
 var face_grid := MeshInstance3D.new()
 var face_material := StandardMaterial3D.new()
+var line_material := StandardMaterial3D.new()
 var material := StandardMaterial3D.new()
 
 func _init() -> void:
 	add_child(grid)
+	line_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	line_material.vertex_color_use_as_albedo = true
 	add_child(face_grid)
 	face_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	face_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -401,7 +404,9 @@ func set_opacity(value: float) -> void:
 	material.albedo_color = Color(0.43, 0.7, 0.77, opacity)
 	grid.visible = opacity > 0.001
 
-func rebuild() -> void:
+func rebuild_mesh() -> void:
+	# Geometry only: no grid lines, no highlight overlay. Cheap enough for
+	# per-tick live drags; call rebuild() (or rebuild_grid_lines()) to finish.
 	index_cache = triangle_indices()
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
@@ -412,8 +417,11 @@ func rebuild() -> void:
 	mesh = mesh_data
 	bounds = mesh_data.get_aabb()
 	build_spatial_index()
-	rebuild_grid_lines()
 	set_opacity(opacity)
+
+func rebuild() -> void:
+	rebuild_mesh()
+	rebuild_grid_lines()
 
 func set_selected_vertices(indices: Array) -> void:
 	set_subobj_selection(indices, [], [])
@@ -456,9 +464,6 @@ func rebuild_grid_lines() -> void:
 	for idx in selected_verts:
 		selected[idx] = true
 	var lines := ImmediateMesh.new()
-	var line_material := StandardMaterial3D.new()
-	line_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	line_material.vertex_color_use_as_albedo = true
 	lines.surface_begin(Mesh.PRIMITIVE_LINES, line_material)
 	if kind == "mesh":
 		# Sparse cross-lines keep long freehand profiles readable.

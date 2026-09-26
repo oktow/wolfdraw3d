@@ -192,6 +192,7 @@ func _input(event: InputEvent) -> void:
 		else:
 			var was_dragging := dragging
 			if dragging and history_started:
+				app.finish_vertex_drag()
 				app.changed()
 			dragging = false
 			handle = ""
@@ -224,7 +225,7 @@ func _input(event: InputEvent) -> void:
 			if for_strokes:
 				app.transform_group(shift, 0, 1, Vector3.ZERO, false, true)
 			elif for_vertex:
-				app.transform_guide_vertices(shift, 0, 1, Vector3.ZERO, false)
+				app.transform_guide_vertices(shift, 0, 1, Vector3.ZERO, false, true)
 			elif not for_cursor:
 				app.transform_guide(shift, 0, 1, Vector3.ZERO, false)
 			else:
@@ -236,7 +237,7 @@ func _input(event: InputEvent) -> void:
 			if for_strokes:
 				app.transform_group(Vector3.ZERO, angle_delta, 1, axis_vector(handle), false, true)
 			elif for_vertex:
-				app.transform_guide_vertices(Vector3.ZERO, angle_delta, 1, axis_vector(handle), false)
+				app.transform_guide_vertices(Vector3.ZERO, angle_delta, 1, axis_vector(handle), false, true)
 			else:
 				app.transform_guide(Vector3.ZERO, angle_delta, 1, axis_vector(handle), false)
 		else:
@@ -244,7 +245,7 @@ func _input(event: InputEvent) -> void:
 			if for_strokes:
 				app.transform_group(Vector3.ZERO, 0, clampf(amount, 0.9, 1.1), Vector3.ZERO, false, true)
 			elif for_vertex:
-				app.transform_guide_vertices(Vector3.ZERO, 0, clampf(amount, 0.9, 1.1), Vector3.ZERO, false)
+				app.transform_guide_vertices(Vector3.ZERO, 0, clampf(amount, 0.9, 1.1), Vector3.ZERO, false, true)
 			else:
 				app.transform_guide(Vector3.ZERO, 0, clampf(amount, 0.9, 1.1), Vector3.ZERO, false)
 		get_viewport().set_input_as_handled()

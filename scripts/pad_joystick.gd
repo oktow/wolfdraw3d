@@ -53,7 +53,7 @@ func apply_move(delta: Vector2) -> void:
 	if for_strokes():
 		app.transform_group(shift, 0.0, 1.0, Vector3.ZERO, false, true)
 	elif for_vertex():
-		app.transform_guide_vertices(shift, 0.0, 1.0, Vector3.ZERO, false)
+		app.transform_guide_vertices(shift, 0.0, 1.0, Vector3.ZERO, false, true)
 	elif for_cursor():
 		app.move_cursor(shift)
 	else:
@@ -67,7 +67,7 @@ func apply_rotate(angle_delta: float) -> void:
 	if for_strokes():
 		app.transform_group(Vector3.ZERO, angle_delta, 1.0, axis, false, true)
 	elif for_vertex():
-		app.transform_guide_vertices(Vector3.ZERO, angle_delta, 1.0, axis, false)
+		app.transform_guide_vertices(Vector3.ZERO, angle_delta, 1.0, axis, false, true)
 	else:
 		app.transform_guide(Vector3.ZERO, angle_delta, 1.0, axis, false)
 
@@ -78,7 +78,7 @@ func apply_scale(amount: float) -> void:
 	if for_strokes():
 		app.transform_group(Vector3.ZERO, 0.0, factor, Vector3.ZERO, false, true)
 	elif for_vertex():
-		app.transform_guide_vertices(Vector3.ZERO, 0.0, factor, Vector3.ZERO, false)
+		app.transform_guide_vertices(Vector3.ZERO, 0.0, factor, Vector3.ZERO, false, true)
 	else:
 		app.transform_guide(Vector3.ZERO, 0.0, factor, Vector3.ZERO, false)
 
@@ -131,6 +131,7 @@ func end_gesture() -> void:
 	stick_offset = Vector2.ZERO
 	history_started = false
 	if was_started:
+		app.finish_vertex_drag()
 		app.changed()
 	queue_redraw()
 

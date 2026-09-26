@@ -22,6 +22,7 @@ var compact_cursor_button: Button
 var cursor_button: Button
 var cursor_pos := Vector3.ZERO
 var vertex_edit := false
+var vertex_drag_live := false
 var mesh_select_mode := "vertex"
 var selected_guide_vertices: Array[int] = []
 var selected_guide_edges: Array = []
@@ -3095,9 +3096,11 @@ func transform_guide(offset: Vector3, angle: float = 0.0, factor: float = 1.0, r
 	surface.apply_transform(center, rotation_basis, factor, offset)
 	changed()
 
-func transform_guide_vertices(offset: Vector3, angle: float = 0.0, factor: float = 1.0, rotation_axis: Vector3 = Vector3.ZERO, record_history: bool = true) -> void:
+func transform_guide_vertices(offset: Vector3, angle: float = 0.0, factor: float = 1.0, rotation_axis: Vector3 = Vector3.ZERO, record_history: bool = true, live: bool = false) -> void:
 	# Move/rotate/scale a subset of the active guide's vertices about their
 	# own center. Stays inside the grid topology, so the file format is untouched.
+	# Live drag ticks skip validation, history, and highlight rebuilds; the
+	# matching finish_vertex_drag() call validates and finalizes instead.
 	finish_stroke()
 	if not vertex_edit:
 		return
@@ -3124,6 +3127,17 @@ func transform_guide_vertices(offset: Vector3, angle: float = 0.0, factor: float
 		if not result.is_finite() or maxf(absf(result.x), maxf(absf(result.y), absf(result.z))) > 100000:
 			return
 		moved[idx] = result
+	if live:
+		vertex_drag_live = true
+		if surface.kind == "plane":
+			surface.kind = "mesh"
+			surface.columns = 2
+			surface.rows = 2
+			surface.corners = PackedVector3Array()
+		surface.vertices = moved
+		surface.rebuild_mesh()
+		surface.rebuild_face_overlay(surface.vertices)
+		return
 	# A plane cannot bend one corner and stay a rectangle (format rule), so
 	# the first vertex edit promotes it to an equivalent 2x2 mesh.
 	var candidate: Dictionary = surface.serialize()
@@ -3149,7 +3163,22 @@ func transform_guide_vertices(offset: Vector3, angle: float = 0.0, factor: float
 	surface.rebuild()
 	changed()
 
+func finish_vertex_drag() -> void:
+	# End of a live vertex drag: validate once, rebuild highlights, or roll
+	# back to the drag-start checkpoint when the result is degenerate.
+	if not vertex_drag_live:
+		return
+	vertex_drag_live = false
+	var surface: MeshInstance3D = guides.current() if guides != null else null
+	if surface == null or surface.kind != "mesh":
+		return
+	if not Store.validate_mesh(surface.serialize()).is_empty():
+		undo()
+	else:
+		surface.rebuild_grid_lines()
+
 func set_vertex_edit(value: bool) -> void:
+	vertex_drag_live = false
 	vertex_edit = value
 	if value:
 		finish_stroke()
