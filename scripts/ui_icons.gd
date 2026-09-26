@@ -44,6 +44,7 @@ const PATHS = {
 	"activate": '<path d="m3 8 7-5 11 4-7 6Z M3 8v11l11 2V13 M9 13l4 3-4 3Z"/>',
 	"reset": '<path d="M4 10a8 8 0 1 1 1 8 M4 4v6h6"/><circle cx="12" cy="12" r="2"/>',
 	"cube": '<path d="m12 2 9 5v10l-9 5-9-5V7Z M3 7l9 5 9-5 M12 12v10"/>',
+	"sphere": '<circle cx="12" cy="12" r="8"/><ellipse cx="12" cy="12" rx="8" ry="3.2"/><path d="M12 4v16"/>',
 	"global_axis": '<path d="M3 12h18 M18 8l3 4-3 4" stroke="#f18cae"/><path d="M12 21V3 M8 6l4-4 4 4" stroke="#73e6bb"/><path d="M6 18l9-9 M13 9h4v4" stroke="#8eb9ff"/>',
 	"cursor3d": '<circle cx="12" cy="12" r="6"/><path d="M12 1v5 M12 18v5 M1 12h5 M18 12h5"/>',
 	"vertex_edit": '<circle cx="5" cy="5" r="1.8"/><circle cx="12" cy="5" r="1.8"/><circle cx="19" cy="5" r="1.8"/><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/><circle cx="5" cy="19" r="1.8"/><circle cx="12" cy="19" r="1.8"/><circle cx="19" cy="19" r="1.8"/>',

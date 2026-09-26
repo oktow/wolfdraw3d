@@ -133,6 +133,23 @@ func configure_tube(center: Vector3, axis: Vector3, radius: float, length: float
 			vertices.append(along + (u * cos(angle) + v * sin(angle)) * radius)
 	rebuild()
 
+func configure_sphere(center: Vector3, radius: float, lon_segments: int = 12, lat_segments: int = 8) -> void:
+	# Latitude-longitude ball stored as a grid: pole rows repeat one point
+	# and the seam column is duplicated, so the existing grid
+	# triangulation, validation, and save/load keep working unchanged.
+	kind = "mesh"
+	columns = clampi(lon_segments + 1, 3, 256)
+	rows = clampi(lat_segments + 1, 2, 64)
+	vertices.clear()
+	for row in rows:
+		var polar := PI * float(row) / float(rows - 1)
+		var ring_radius := radius * sin(polar)
+		var height := radius * cos(polar)
+		for col in columns:
+			var azimuth := TAU * float(col) / float(columns - 1)
+			vertices.append(center + Vector3(cos(azimuth) * ring_radius, height, sin(azimuth) * ring_radius))
+	rebuild()
+
 func configure_line(center: Vector3, basis: Basis, length: float, width: float) -> void:
 	# Thin camera-facing strip (ruler edge) that stays drawable.
 	kind = "mesh"

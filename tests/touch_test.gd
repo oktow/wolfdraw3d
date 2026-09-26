@@ -464,7 +464,7 @@ func run(app: Node) -> bool:
 	assert(app.rail_guide_new_button.visible)
 	var create_had_guide := app.guides.current() != null
 	app.refresh_guide_type_menu()
-	assert(app.guide_type_menu.item_count == 5)
+	assert(app.guide_type_menu.item_count == 6)
 	assert(app.guide_type_menu.get_item_icon(0).get_width() <= 24)
 	assert(app.guide_type_menu.is_item_disabled(2) == (not create_had_guide))
 	assert(app.guide_type_menu.is_item_disabled(3) == create_had_guide)

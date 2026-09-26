@@ -41,6 +41,7 @@ const POLY_IDLE_MS := 2000
 var poly_last_msec := -1
 var cube_button: Button
 var tube_button: Button
+var sphere_button: Button
 var primitive_row: HBoxContainer
 var length_slider: HSlider
 var length_label: Label
@@ -131,6 +132,15 @@ func start_tube() -> void:
 	start_placing()
 	if placing:
 		creation_mode = "tube"
+		app.set_finger_drawing(true)
+		refresh()
+
+func start_sphere() -> void:
+	if current() != null:
+		return
+	start_placing()
+	if placing:
+		creation_mode = "sphere"
 		app.set_finger_drawing(true)
 		refresh()
 
@@ -262,6 +272,17 @@ func extend_preview(screen: Vector2) -> void:
 		tube_radius = minf(tube_radius, 3.0)
 		var tube_axis: Vector3 = -creation_frame.basis.z.normalized()
 		preview.configure_tube(profile[0], tube_axis, tube_radius, sweep_length)
+		preview.show()
+		return
+	if creation_mode == "sphere":
+		if profile.is_empty():
+			return
+		# Touch point is the ball center; drag distance outward is the radius.
+		var sphere_radius: float = hit.distance_to(profile[0])
+		if sphere_radius < 0.05:
+			preview.hide()
+			return
+		preview.configure_sphere(profile[0], minf(sphere_radius, 3.0))
 		preview.show()
 		return
 	if creation_mode != "plane" and creation_mode != "plane_taps":
@@ -436,6 +457,18 @@ func create_line() -> void:
 	app.add_child(preview)
 	preview.configure_line(frame.origin, frame.basis, sweep_length,
 		clampf(app.view_height(depth) * 0.015, 0.03, 0.25))
+	finish_preview()
+
+func create_sphere() -> void:
+	if current() != null or surfaces.size() >= 100:
+		return
+	app.finish_stroke()
+	cancel_preview()
+	creation_mode = "primitive"
+	var frame := primitive_frame()
+	preview = Surface.new()
+	app.add_child(preview)
+	preview.configure_sphere(frame.origin, clampf(sweep_length * 0.25, 0.25, 3.0))
 	finish_preview()
 
 func quick_plane() -> void:
@@ -637,6 +670,8 @@ func refresh() -> void:
 			placing_text = Localization.translate("Tarik area untuk ukuran cube")
 		elif creation_mode == "tube":
 			placing_text = Localization.translate("Tarik keluar untuk radius tube")
+		elif creation_mode == "sphere":
+			placing_text = Localization.translate("Tarik keluar untuk radius sphere")
 		elif creation_mode == "plane_taps":
 			placing_text = Localization.translate("Ketuk sudut seberang bidang") if not profile.is_empty() else Localization.translate("Ketuk sudut pertama bidang")
 		state_label.text = placing_text
@@ -654,6 +689,7 @@ func refresh() -> void:
 	primitive_row.visible = surface == null
 	cube_button.disabled = surface != null
 	tube_button.disabled = surface != null
+	sphere_button.disabled = surface != null
 	depth_label.visible = surface == null
 	depth_slider.visible = surface == null
 	opacity_label.visible = surface != null
@@ -726,8 +762,10 @@ func build_controls(column: VBoxContainer) -> void:
 	column.add_child(primitive_row)
 	cube_button = app.button_in(primitive_row, "Cube", start_cube)
 	tube_button = app.button_in(primitive_row, "Tube", start_tube)
+	sphere_button = app.button_in(primitive_row, "Sphere", start_sphere)
 	cube_button.tooltip_text = Localization.translate("Klik-drag pada kanvas untuk mengatur ukuran cube; tengah tepat di area tarikan.")
 	tube_button.tooltip_text = Localization.translate("Sentuh titik pusat, tarik keluar untuk radius tube. Panjang mengikuti Bentangan profil.")
+	sphere_button.tooltip_text = Localization.translate("Sentuh titik pusat, tarik keluar untuk radius sphere.")
 	cancel_button = app.button_in(column, "Batal membuat guide", cancel_placing)
 	depth_label = app.label_in(column, "Kedalaman guide baru", 14)
 	depth_slider = HSlider.new()

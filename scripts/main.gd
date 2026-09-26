@@ -2546,10 +2546,10 @@ func build_ui() -> void:
 	toggle_menu()
 
 func guide_type_items() -> Array:
-	return ["Draw: profil bebas", "Poligonal: klik titik", "Bend: gambar arah baru", "Cube", "Tube"]
+	return ["Draw: profil bebas", "Poligonal: klik titik", "Bend: gambar arah baru", "Cube", "Tube", "Sphere"]
 
 func guide_type_icons() -> Array:
-	return ["profile", "polyline", "bend", "cube", "tube"]
+	return ["profile", "polyline", "bend", "cube", "tube", "sphere"]
 
 func refresh_guide_type_menu() -> void:
 	refresh_popup_language(guide_type_menu)
@@ -2566,7 +2566,7 @@ func show_guide_type_menu(source: Control) -> void:
 	guide_type_menu.popup()
 
 func guide_type_kinds() -> Array:
-	return ["profile", "polyline", "bend", "cube", "tube"]
+	return ["profile", "polyline", "bend", "cube", "tube", "sphere"]
 
 func start_guide_kind(kind: String) -> void:
 	match kind:
@@ -2580,6 +2580,8 @@ func start_guide_kind(kind: String) -> void:
 			guides.start_cube()
 		"tube":
 			guides.start_tube()
+		"sphere":
+			guides.start_sphere()
 		_:
 			guides.start_profile()
 
@@ -2595,7 +2597,7 @@ func toggle_guide_create() -> void:
 func refresh_top_guide_icon() -> void:
 	if compact_guide_button == null:
 		return
-	var icons := {"plane": "plane", "quick": "quick_plane", "profile": "profile", "polyline": "polyline", "curve": "curve", "bend": "bend", "cube": "cube", "tube": "tube", "line": "line"}
+	var icons := {"plane": "plane", "quick": "quick_plane", "profile": "profile", "polyline": "polyline", "curve": "curve", "bend": "bend", "cube": "cube", "tube": "tube", "sphere": "sphere", "line": "line"}
 	compact_guide_button.text = ""
 	compact_guide_button.icon = Icons.texture(icons.get(last_guide_type, "plane"))
 	compact_guide_button.set_pressed_no_signal(guides != null and guides.placing)
