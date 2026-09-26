@@ -48,7 +48,7 @@ const PATHS = {
 	"vertex_edit": '<circle cx="5" cy="5" r="1.8"/><circle cx="12" cy="5" r="1.8"/><circle cx="19" cy="5" r="1.8"/><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/><circle cx="5" cy="19" r="1.8"/><circle cx="12" cy="19" r="1.8"/><circle cx="19" cy="19" r="1.8"/>',
 	"edge_edit": '<path d="M4 20 20 4"/><circle cx="4" cy="20" r="2.2"/><circle cx="20" cy="4" r="2.2"/>',
 	"face_edit": '<path d="M12 4 21 20 H3 Z"/><circle cx="12" cy="4" r="1.8"/><circle cx="21" cy="20" r="1.8"/><circle cx="3" cy="20" r="1.8"/>',
-	"extrude": '<rect x="3" y="9" width="11" height="11" rx="1"/><path d="M14 14h7 M18 11l3 3-3 3"/>',
+	"extrude": '<rect x="4" y="13" width="10" height="7" rx="1"/><rect x="4" y="4" width="10" height="7" rx="1" opacity=".4"/><path d="M18 14V5 M15.5 7.5 18 5l2.5 2.5"/>',
 	"line": '<path d="M4 20 20 4"/><circle cx="4" cy="20" r="1.6"/><circle cx="20" cy="4" r="1.6"/>',
 	"polyline": '<circle cx="4" cy="18" r="1.6"/><circle cx="12" cy="8" r="1.6"/><circle cx="20" cy="14" r="1.6"/><path d="M5 17l6-8 8 5"/>',
 	"curve": '<path d="M3 18q6-12 9-6t9-6"/><circle cx="3" cy="18" r="1.4"/><circle cx="21" cy="6" r="1.4"/>',

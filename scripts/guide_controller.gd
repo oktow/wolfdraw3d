@@ -684,7 +684,7 @@ func refresh() -> void:
 		vertex_mode_button.set_pressed_no_signal(app.mesh_select_mode == "vertex")
 		edge_mode_button.set_pressed_no_signal(app.mesh_select_mode == "edge")
 		face_mode_button.set_pressed_no_signal(app.mesh_select_mode == "face")
-		extrude_button.disabled = not app.can_extrude()
+		extrude_button.disabled = false
 	app.update_status()
 
 func build_controls(column: VBoxContainer) -> void:

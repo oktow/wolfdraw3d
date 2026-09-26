@@ -1688,7 +1688,9 @@ func refresh_context_rail() -> void:
 		rail_vertex_button.set_pressed_no_signal(vertex_edit and mesh_select_mode == "vertex")
 		rail_edge_button.set_pressed_no_signal(vertex_edit and mesh_select_mode == "edge")
 		rail_face_button.set_pressed_no_signal(vertex_edit and mesh_select_mode == "face")
-		rail_extrude_button.disabled = not can_extrude()
+		# Always tappable: pressing without a full boundary row explains
+		# what to select via the status line instead of staying mysterious.
+		rail_extrude_button.disabled = false
 	for button in [rail_draw_brush_button, rail_draw_props_button, rail_draw_taper_button, rail_draw_shape_button]:
 		if button != null:
 			button.visible = draw_active
