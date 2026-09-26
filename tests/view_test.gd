@@ -26,7 +26,7 @@ func run(app: Node3D) -> bool:
 	assert(app.view_controls.is_visible_in_tree())
 	app.view_menu.get_popup().id_pressed.emit(1)
 	assert(app.camera.basis.z.is_equal_approx(Vector3.UP))
-	assert(app.APP_VERSION == "0.2.7")
+	assert(app.APP_VERSION == "0.2.8")
 	# 3D cursor gizmo tracks the cursor through every navigation op.
 	app.target = Vector3(1.2, -0.6, 0.8)
 	app.cursor_pos = Vector3(1.2, -0.6, 0.8)

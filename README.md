@@ -28,6 +28,11 @@ Prototipe aplikasi menggambar 3D untuk target Android, dibuat dengan Godot 4 dan
 - Duplikat di tempat + langsung terseleksi; warnai seleksi via color pick; radius brush 0,005–0,5; orbit fill di luar guide.
 - Ikon sumbu global di toolbar atas; popup guide satu ikon; ikon 24px seragam.
 
+**Pembaruan 0.2.8 (code 11):** `build/WolfDraw3D-0.2.8-debug.apk` — daftar perubahan:
+- Kuas warna: coretan tertutup jadi fill menyatu (union warna-sama sebidang).
+- Primitif Sphere + menu 6 tipe guide; ikon sub-objek rail jadi satu siklus.
+- Optimasi live-drag vertex; Extrude selalu bisa ditekan dengan petunjuk status.
+
 **Pembaruan 0.2.7 (code 10):** `build/WolfDraw3D-0.2.7-debug.apk` — daftar perubahan:
 - Kursor menjadi titik tengah semua guide (profil/poligonal/kurva terpusat, Cube/Tube terpusat).
 - Bidang ketuk-2-titik; hold profil menjadi auto (garis/kurva/lingkaran).
@@ -45,7 +50,7 @@ Salin APK ke perangkat, buka file, lalu izinkan pemasangan dari aplikasi pengelo
 Build ulang dengan preset yang sudah tersedia, Java/SDK pada Editor Settings, dan template ekspor Godot 4.7.2:
 
 ```powershell
-& 'D:\Godot_v4.7.2\Godot_v4.7.2-stable_win64_console.exe' --headless --path . --export-debug Android build/WolfDraw3D-0.2.7-debug.apk
+& 'D:\Godot_v4.7.2\Godot_v4.7.2-stable_win64_console.exe' --headless --path . --export-debug Android build/WolfDraw3D-0.2.8-debug.apk
 ```
 
 Referensi setup: [dokumentasi ekspor Android Godot 4.7](https://docs.godotengine.org/en/4.7/tutorials/export/exporting_for_android.html). Uji perangkat berikutnya: buka aplikasi, orbit/pan/pinch, Draw/Bend, eraser, simpan/buka, sembunyikan menu, dan pause/resume. Tampilan masih berorientasi tablet landscape; kenyamanan layar ponsel belum tervalidasi.

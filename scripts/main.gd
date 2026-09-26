@@ -12,7 +12,7 @@ const Localization = preload("res://scripts/localization.gd")
 const SequenceOverlay = preload("res://scripts/sequence_overlay.gd")
 const GifEncoder = preload("res://scripts/gif_encoder.gd")
 const PadJoystick = preload("res://scripts/pad_joystick.gd")
-const APP_VERSION := "0.2.7"
+const APP_VERSION := "0.2.8"
 var mirror_axes := {"x": false, "y": false, "z": false}
 var mirror_button: Button
 var compact_mirror_button: Button
