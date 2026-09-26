@@ -14,6 +14,9 @@ var index_cache := PackedInt32Array()
 var hit_normal := Vector3.BACK
 var bounds := AABB()
 var selected_verts: Array[int] = []
+var selected_edges: Array = []
+var selected_faces: Array[int] = []
+var highlight_offset := Vector3.ZERO
 # Uniform-grid spatial index for dense meshes (built in rebuild, used by
 # intersect_ray). Small meshes keep the plain linear scan.
 const GRID_TRI_THRESHOLD := 1500
@@ -174,10 +177,20 @@ func triangle_indices() -> PackedInt32Array:
 			result.append_array(PackedInt32Array([a, a + 1, b + 1, a, b + 1, b]))
 	return result
 var grid := MeshInstance3D.new()
+var face_grid := MeshInstance3D.new()
+var face_material := StandardMaterial3D.new()
 var material := StandardMaterial3D.new()
 
 func _init() -> void:
 	add_child(grid)
+	add_child(face_grid)
+	face_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	face_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	face_material.albedo_color = Color(1.0, 0.77, 0.35, 0.4)
+	face_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	face_material.no_depth_test = true
+	face_grid.material_override = face_material
+	face_grid.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	material.cull_mode = BaseMaterial3D.CULL_DISABLED
@@ -403,13 +416,36 @@ func rebuild() -> void:
 	set_opacity(opacity)
 
 func set_selected_vertices(indices: Array) -> void:
+	set_subobj_selection(indices, [], [])
+
+func set_subobj_selection(verts: Array, edges: Array, faces: Array) -> void:
 	var clean: Array[int] = []
 	var count := vertices.size() if kind == "mesh" else 4
-	for i in indices:
+	for i in verts:
 		var idx := int(i)
 		if idx >= 0 and idx < count and not clean.has(idx):
 			clean.append(idx)
 	selected_verts = clean
+	var clean_edges := []
+	for e in edges:
+		var pair := Vector2i(e)
+		var a := mini(pair.x, pair.y)
+		var b := maxi(pair.x, pair.y)
+		if a >= 0 and b < count and a != b:
+			var key := Vector2i(a, b)
+			if not clean_edges.has(key):
+				clean_edges.append(key)
+	selected_edges = clean_edges
+	var clean_faces: Array[int] = []
+	var tri_count := (index_cache.size() / 3) if kind == "mesh" else 2
+	for f in faces:
+		var base := int(f)
+		if kind == "mesh":
+			if base >= 0 and base % 3 == 0 and base < index_cache.size() and not clean_faces.has(base):
+				clean_faces.append(base)
+		elif (base == 0 or base == 1) and not clean_faces.has(base):
+			clean_faces.append(base)
+	selected_faces = clean_faces
 	rebuild_grid_lines()
 
 func guide_points() -> PackedVector3Array:
@@ -455,8 +491,39 @@ func rebuild_grid_lines() -> void:
 				lines.surface_set_color(Color("ffc570"))
 				lines.surface_add_vertex(first)
 				lines.surface_add_vertex(first.lerp(corners[neighbor], 0.18))
+	var points: PackedVector3Array = vertices if kind == "mesh" else corners
+	for e in selected_edges:
+		var pair := Vector2i(e)
+		if pair.y < points.size():
+			lines.surface_set_color(Color("ffc570"))
+			lines.surface_add_vertex(points[pair.x] + highlight_offset)
+			lines.surface_add_vertex(points[pair.y] + highlight_offset)
 	lines.surface_end()
 	grid.mesh = lines
+	rebuild_face_overlay(points)
+
+func rebuild_face_overlay(points: PackedVector3Array) -> void:
+	if selected_faces.is_empty():
+		face_grid.mesh = null
+		face_grid.visible = false
+		return
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	var tris := PackedVector3Array()
+	for base in selected_faces:
+		var trio: Array[int] = []
+		if kind == "mesh":
+			trio.assign([index_cache[base], index_cache[base + 1], index_cache[base + 2]])
+		else:
+			trio.assign([0, 1, 2] if base == 0 else [0, 2, 3])
+		for idx in trio:
+			if idx >= 0 and idx < points.size():
+				tris.append(points[idx] + highlight_offset)
+	arrays[Mesh.ARRAY_VERTEX] = tris
+	var overlay := ArrayMesh.new()
+	overlay.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	face_grid.mesh = overlay
+	face_grid.visible = true
 
 func serialize() -> Dictionary:
 	var points := []
@@ -470,6 +537,8 @@ func serialize() -> Dictionary:
 
 func restore(data: Dictionary) -> void:
 	selected_verts = []
+	selected_edges = []
+	selected_faces = []
 	guide_id = int(data.id)
 	title = data.name
 	saved = data.saved

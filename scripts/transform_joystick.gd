@@ -39,7 +39,7 @@ func cursor_active() -> bool:
 func vertex_active() -> bool:
 	if not is_instance_valid(app) or not app.vertex_edit:
 		return false
-	if not app.selected_guide_vertices.is_empty() and app.guides != null and app.guides.current() != null:
+	if app.guides != null and app.guides.current() != null and not app.selected_mesh_indices().is_empty():
 		return true
 	return false
 
@@ -49,7 +49,7 @@ func vertex_points() -> PackedVector3Array:
 		return result
 	var surface: MeshInstance3D = app.guides.current()
 	var points: PackedVector3Array = surface.corners if surface.kind == "plane" else surface.vertices
-	for i in app.selected_guide_vertices:
+	for i in app.selected_mesh_indices():
 		var idx := int(i)
 		if idx >= 0 and idx < points.size():
 			result.append(points[idx])

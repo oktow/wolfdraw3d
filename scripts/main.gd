@@ -22,7 +22,10 @@ var compact_cursor_button: Button
 var cursor_button: Button
 var cursor_pos := Vector3.ZERO
 var vertex_edit := false
+var mesh_select_mode := "vertex"
 var selected_guide_vertices: Array[int] = []
+var selected_guide_edges: Array = []
+var selected_guide_faces: Array[int] = []
 var pad_rail: VBoxContainer
 var pad_stick: Control
 var pad_visible := false
@@ -1612,6 +1615,10 @@ func update_status() -> void:
 	if selection_label != null:
 		if not selected_strokes.is_empty():
 			selection_label.text = "%d goresan dipilih" % selected_strokes.size()
+		elif not selected_guide_faces.is_empty():
+			selection_label.text = "%d face dipilih" % selected_guide_faces.size()
+		elif not selected_guide_edges.is_empty():
+			selection_label.text = "%d edge dipilih" % selected_guide_edges.size()
 		elif not selected_guide_vertices.is_empty():
 			selection_label.text = "%d vertex dipilih" % selected_guide_vertices.size()
 		elif tool == "select" and guides != null and guides.current() != null:
@@ -2551,6 +2558,8 @@ func restore_document(data: Dictionary) -> void:
 	sequence = data.get("sequence", []).duplicate(true)
 	apply_environment(data.get("environment", Store.default_environment()))
 	selected_guide_vertices.clear()
+	selected_guide_edges.clear()
+	selected_guide_faces.clear()
 	sequence_next_id = 0
 	for shot in sequence:
 		sequence_next_id = maxi(sequence_next_id, int(shot.id) + 1)
@@ -2892,18 +2901,39 @@ func edit_at(screen: Vector2) -> void:
 		eraser.begin(screen)
 		eraser.finish()
 	elif vertex_edit and tool == "select":
-		# Vertex mode is modal: taps only touch guide vertices, never ink.
-		var picked := pick_guide_vertex(screen)
-		if picked < 0:
+		# Sub-object mode is modal: taps only touch guide parts, never ink.
+		var surface: MeshInstance3D = guides.current()
+		if surface == null:
 			clear_vertex_selection()
 			return
-		if selected_guide_vertices.has(picked):
-			selected_guide_vertices.erase(picked)
+		if mesh_select_mode == "edge":
+			var picked_edge := pick_guide_edge(screen)
+			if picked_edge.x < 0:
+				clear_vertex_selection()
+				return
+			if selected_guide_edges.has(picked_edge):
+				selected_guide_edges.erase(picked_edge)
+			else:
+				selected_guide_edges.append(picked_edge)
+		elif mesh_select_mode == "face":
+			var picked_face := pick_guide_face(screen)
+			if picked_face < 0:
+				clear_vertex_selection()
+				return
+			if selected_guide_faces.has(picked_face):
+				selected_guide_faces.erase(picked_face)
+			else:
+				selected_guide_faces.append(picked_face)
 		else:
-			selected_guide_vertices.append(picked)
-		var surface: MeshInstance3D = guides.current()
-		if surface != null:
-			surface.set_selected_vertices(selected_guide_vertices)
+			var picked := pick_guide_vertex(screen)
+			if picked < 0:
+				clear_vertex_selection()
+				return
+			if selected_guide_vertices.has(picked):
+				selected_guide_vertices.erase(picked)
+			else:
+				selected_guide_vertices.append(picked)
+		push_subobj_selection()
 		update_status()
 	else:
 		choose_stroke(pick_stroke(screen))
@@ -3058,7 +3088,7 @@ func transform_guide_vertices(offset: Vector3, angle: float = 0.0, factor: float
 	# Move/rotate/scale a subset of the active guide's vertices about their
 	# own center. Stays inside the grid topology, so the file format is untouched.
 	finish_stroke()
-	if not vertex_edit or selected_guide_vertices.is_empty():
+	if not vertex_edit:
 		return
 	var surface: MeshInstance3D = guides.current()
 	if surface == null:
@@ -3066,7 +3096,7 @@ func transform_guide_vertices(offset: Vector3, angle: float = 0.0, factor: float
 	var points: PackedVector3Array = surface.corners if surface.kind == "plane" else surface.vertices
 	var indices: Array[int] = []
 	var center := Vector3.ZERO
-	for i in selected_guide_vertices:
+	for i in selected_mesh_indices():
 		var idx := int(i)
 		if idx < 0 or idx >= points.size():
 			continue
@@ -3119,10 +3149,66 @@ func set_vertex_edit(value: bool) -> void:
 
 func clear_vertex_selection() -> void:
 	selected_guide_vertices.clear()
+	selected_guide_edges.clear()
+	selected_guide_faces.clear()
+	push_subobj_selection()
+	update_status()
+
+func push_subobj_selection() -> void:
+	if guides == null:
+		return
+	var surface: MeshInstance3D = guides.current()
+	if surface == null or not is_instance_valid(surface):
+		return
+	if camera != null:
+		var to_cam: Vector3 = camera.global_position - surface.center()
+		surface.highlight_offset = to_cam.normalized() * 0.004 if to_cam.length() > 0.001 else Vector3.ZERO
+	surface.set_subobj_selection(selected_guide_vertices, selected_guide_edges, selected_guide_faces)
+
+func selected_mesh_indices() -> Array[int]:
+	# Union of every selected sub-object part as mesh/corner indices.
+	var out: Array[int] = []
+	var surface: MeshInstance3D = guides.current() if guides != null else null
+	for i in selected_guide_vertices:
+		_add_mesh_index(out, int(i))
+	for e in selected_guide_edges:
+		var pair := Vector2i(e)
+		_add_mesh_index(out, pair.x)
+		_add_mesh_index(out, pair.y)
+	if surface != null and surface.kind == "mesh":
+		for f in selected_guide_faces:
+			var base := int(f)
+			if base >= 0 and base + 2 < surface.index_cache.size():
+				_add_mesh_index(out, surface.index_cache[base])
+				_add_mesh_index(out, surface.index_cache[base + 1])
+				_add_mesh_index(out, surface.index_cache[base + 2])
+	else:
+		for f in selected_guide_faces:
+			for idx in ([0, 1, 2] if int(f) == 0 else [0, 2, 3]):
+				_add_mesh_index(out, idx)
+	var count := 0
+	if surface != null:
+		count = surface.vertices.size() if surface.kind == "mesh" else 4
+	var clean: Array[int] = []
+	for idx in out:
+		if idx >= 0 and idx < count and not clean.has(idx):
+			clean.append(idx)
+	return clean
+
+func _add_mesh_index(out: Array[int], idx: int) -> void:
+	if not out.has(idx):
+		out.append(idx)
+
+func set_mesh_select_mode(mode: String) -> void:
+	if mode not in ["vertex", "edge", "face"]:
+		return
+	mesh_select_mode = mode
+	if not vertex_edit:
+		set_vertex_edit(true)
+	else:
+		clear_vertex_selection()
 	if guides != null:
-		var surface: MeshInstance3D = guides.current()
-		if surface != null and is_instance_valid(surface):
-			surface.set_selected_vertices([])
+		guides.refresh()
 	update_status()
 
 func pick_guide_vertex(screen: Vector2) -> int:
@@ -3150,6 +3236,195 @@ func pick_guide_vertex(screen: Vector2) -> int:
 			best_px = distance_px
 			best = idx
 	return best
+
+func _screen_segment_distance(point: Vector2, a: Vector2, b: Vector2) -> float:
+	var span := b - a
+	var length_squared := span.length_squared()
+	if length_squared < 0.000001:
+		return point.distance_to(a)
+	var amount := clampf((point - a).dot(span) / length_squared, 0.0, 1.0)
+	return point.distance_to(a + span * amount)
+
+func pick_guide_edge(screen: Vector2) -> Vector2i:
+	var miss := Vector2i(-1, -1)
+	var surface: MeshInstance3D = guides.current()
+	if surface == null or not surface.visible:
+		return miss
+	var result: Array = surface.intersect_ray_full(camera.project_ray_origin(screen), camera.project_ray_normal(screen))
+	if result[0] == null:
+		return miss
+	var points: PackedVector3Array = surface.corners if surface.kind == "plane" else surface.vertices
+	var trio: Array[int] = []
+	if surface.kind == "mesh":
+		var base := int(result[1])
+		if base < 0 or base + 2 >= surface.index_cache.size():
+			return miss
+		trio.assign([surface.index_cache[base], surface.index_cache[base + 1], surface.index_cache[base + 2]])
+	else:
+		trio.assign([0, 1, 2] if int(result[1]) == 0 else [0, 2, 3])
+	var best := miss
+	var best_px := 16.0
+	for pair in [[trio[0], trio[1]], [trio[1], trio[2]], [trio[2], trio[0]]]:
+		var a := int(pair[0])
+		var b := int(pair[1])
+		if a < 0 or b < 0 or a >= points.size() or b >= points.size():
+			continue
+		var distance_px := _screen_segment_distance(screen, camera.unproject_position(points[a]), camera.unproject_position(points[b]))
+		if distance_px < best_px:
+			best_px = distance_px
+			best = Vector2i(mini(a, b), maxi(a, b))
+	return best
+
+func pick_guide_face(screen: Vector2) -> int:
+	var surface: MeshInstance3D = guides.current()
+	if surface == null or not surface.visible:
+		return -1
+	var result: Array = surface.intersect_ray_full(camera.project_ray_origin(screen), camera.project_ray_normal(screen))
+	if result[0] == null:
+		return -1
+	return int(result[1])
+
+func _boundary_target() -> Array:
+	# ["row", index] or ["col", index] when the selected edges cover one
+	# full boundary row/column of the active mesh (plane counts as 2x2).
+	var surface: MeshInstance3D = guides.current()
+	if surface == null:
+		return []
+	var columns := 2
+	var rows := 2
+	if surface.kind == "mesh":
+		columns = surface.columns
+		rows = surface.rows
+	elif surface.kind != "plane":
+		return []
+	var edge_set := {}
+	for e in selected_guide_edges:
+		edge_set[Vector2i(e)] = true
+	for r in [0, rows - 1]:
+		var full := true
+		for c in range(columns - 1):
+			if not edge_set.has(Vector2i(r * columns + c, r * columns + c + 1)):
+				full = false
+				break
+		if full:
+			return ["row", r]
+	for c in [0, columns - 1]:
+		var full_col := true
+		for r in range(rows - 1):
+			if not edge_set.has(Vector2i(r * columns + c, (r + 1) * columns + c)):
+				full_col = false
+				break
+		if full_col:
+			return ["col", c]
+	return []
+
+func can_extrude() -> bool:
+	return not _boundary_target().is_empty()
+
+func extrude_mesh_boundary() -> void:
+	# Grow the grid by one row/column from a fully selected boundary edge.
+	# The new strip continues the sweep direction by one edge-length step.
+	finish_stroke()
+	if not vertex_edit:
+		return
+	var surface: MeshInstance3D = guides.current()
+	if surface == null or not surface.visible:
+		return
+	var target := _boundary_target()
+	if target.is_empty():
+		status.text = Localization.translate("Pilih satu baris tepi penuh untuk Extrude.")
+		return
+	if surface.kind == "plane":
+		checkpoint()
+		surface.kind = "mesh"
+		surface.columns = 2
+		surface.rows = 2
+		surface.vertices = surface.corners.duplicate()
+		surface.corners = PackedVector3Array()
+		surface.rebuild()
+	var columns: int = surface.columns
+	var rows: int = surface.rows
+	var points: PackedVector3Array = surface.vertices
+	var boundary: PackedVector3Array = PackedVector3Array()
+	var neighbor: PackedVector3Array = PackedVector3Array()
+	if String(target[0]) == "row":
+		var r := int(target[1])
+		var n := r - 1 if r == rows - 1 else r + 1
+		for c in range(columns):
+			boundary.append(points[r * columns + c])
+			neighbor.append(points[n * columns + c])
+	else:
+		var c := int(target[1])
+		var n2 := c - 1 if c == columns - 1 else c + 1
+		for r in range(rows):
+			boundary.append(points[r * columns + c])
+			neighbor.append(points[r * columns + n2])
+	var spread := 0.0
+	for a in boundary:
+		for b in boundary:
+			spread = maxf(spread, a.distance_to(b))
+	if spread < 0.001:
+		return
+	var direction := Vector3.ZERO
+	var step := 0.0
+	for i in boundary.size():
+		direction += boundary[i] - neighbor[i]
+		if i > 0:
+			step += boundary[i - 1].distance_to(boundary[i])
+	if direction.length() < 0.000001:
+		return
+	step = maxf(0.05, step / maxf(1.0, float(boundary.size() - 1)))
+	var grown: PackedVector3Array = PackedVector3Array()
+	var push: Vector3 = direction.normalized() * step
+	for point in boundary:
+		grown.append(point + push)
+	var grown_vertices := PackedVector3Array()
+	var grown_columns := columns
+	var grown_rows := rows
+	if String(target[0]) == "row":
+		if rows + 1 > 64:
+			return
+		grown_rows = rows + 1
+		if int(target[1]) == 0:
+			grown_vertices.append_array(grown)
+			grown_vertices.append_array(points)
+		else:
+			grown_vertices.append_array(points)
+			grown_vertices.append_array(grown)
+	else:
+		if columns + 1 > 256:
+			return
+		grown_columns = columns + 1
+		var at_end := int(target[1]) == columns - 1
+		for r in range(rows):
+			if not at_end:
+				grown_vertices.append(grown[r])
+			for c in range(columns):
+				grown_vertices.append(points[r * columns + c])
+			if at_end:
+				grown_vertices.append(grown[r])
+	var candidate: Dictionary = surface.serialize()
+	var encoded := []
+	for point in grown_vertices:
+		encoded.append([point.x, point.y, point.z])
+	candidate["vertices"] = encoded
+	candidate["columns"] = grown_columns
+	candidate["rows"] = grown_rows
+	if not Store.validate_mesh(candidate).is_empty():
+		return
+	checkpoint()
+	surface.columns = grown_columns
+	surface.rows = grown_rows
+	surface.vertices = grown_vertices
+	selected_guide_vertices.clear()
+	selected_guide_edges.clear()
+	selected_guide_faces.clear()
+	surface.rebuild()
+	push_subobj_selection()
+	changed()
+	status.text = Localization.translate("Tepi diekstrusi.")
+	if guides != null:
+		guides.refresh()
 
 func move_cursor(offset: Vector3) -> void:
 	# Session-only nudge of the 3D cursor: no history, no document change.

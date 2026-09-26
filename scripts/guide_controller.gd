@@ -29,6 +29,11 @@ var depth_label: Label
 var opacity_label: Label
 var action_row: HBoxContainer
 var face_button: Button
+var subobj_row: HBoxContainer
+var vertex_mode_button: Button
+var edge_mode_button: Button
+var face_mode_button: Button
+var extrude_button: Button
 var profile_button: Button
 var poly_button: Button
 var bend_button: Button
@@ -674,6 +679,12 @@ func refresh() -> void:
 	var named := surface if surface != null else picked()
 	if named != null and guide_name_field != null and not guide_name_field.has_focus():
 		guide_name_field.text = named.title
+	if subobj_row != null:
+		subobj_row.visible = surface != null
+		vertex_mode_button.set_pressed_no_signal(app.mesh_select_mode == "vertex")
+		edge_mode_button.set_pressed_no_signal(app.mesh_select_mode == "edge")
+		face_mode_button.set_pressed_no_signal(app.mesh_select_mode == "face")
+		extrude_button.disabled = not app.can_extrude()
 	app.update_status()
 
 func build_controls(column: VBoxContainer) -> void:
@@ -764,4 +775,17 @@ func build_controls(column: VBoxContainer) -> void:
 	var rename_button: Button = app.button_in(rename_row, "Ubah nama", func(): rename_target(guide_name_field.text))
 	rename_button.tooltip_text = Localization.translate("Menerapkan nama objek pada guide aktif atau terpilih.")
 	guide_name_field.text_submitted.connect(func(_text: String): rename_target(guide_name_field.text))
+	subobj_row = HBoxContainer.new()
+	column.add_child(subobj_row)
+	vertex_mode_button = app.button_in(subobj_row, "Vertex", func(): app.set_mesh_select_mode("vertex"))
+	edge_mode_button = app.button_in(subobj_row, "Edge", func(): app.set_mesh_select_mode("edge"))
+	face_mode_button = app.button_in(subobj_row, "Face", func(): app.set_mesh_select_mode("face"))
+	vertex_mode_button.toggle_mode = true
+	edge_mode_button.toggle_mode = true
+	face_mode_button.toggle_mode = true
+	vertex_mode_button.tooltip_text = Localization.translate("Memilih dan menggeser titik vertex guide aktif.")
+	edge_mode_button.tooltip_text = Localization.translate("Memilih dan menggeser rusuk guide aktif.")
+	face_mode_button.tooltip_text = Localization.translate("Memilih dan menggeser sisi segitiga guide aktif.")
+	extrude_button = app.button_in(subobj_row, "Extrude", func(): app.extrude_mesh_boundary())
+	extrude_button.tooltip_text = Localization.translate("Menambah baris grid baru dari tepi terpilih.")
 	refresh()
