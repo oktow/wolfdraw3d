@@ -21,6 +21,8 @@ var compact_pad_button: Button
 var compact_cursor_button: Button
 var cursor_button: Button
 var cursor_pos := Vector3.ZERO
+var vertex_edit := false
+var selected_guide_vertices: Array[int] = []
 var pad_rail: VBoxContainer
 var pad_stick: Control
 var pad_visible := false
@@ -39,6 +41,7 @@ var rail_guide_close_button: Button
 var rail_guide_face_button: Button
 var rail_guide_delete_button: Button
 var rail_guide_transform_button: Button
+var rail_vertex_button: Button
 var rail_guide_rot_button: Button
 var rail_rotate_menu: PopupMenu
 var rail_draw_brush_button: Button
@@ -1609,6 +1612,8 @@ func update_status() -> void:
 	if selection_label != null:
 		if not selected_strokes.is_empty():
 			selection_label.text = "%d goresan dipilih" % selected_strokes.size()
+		elif not selected_guide_vertices.is_empty():
+			selection_label.text = "%d vertex dipilih" % selected_guide_vertices.size()
 		elif tool == "select" and guides != null and guides.current() != null:
 			selection_label.text = Localization.translate("Gizmo: guide aktif")
 		elif tool == "select":
@@ -1635,7 +1640,7 @@ func layout_context_rail() -> void:
 		pad_rail.offset_bottom = 105
 	# Height follows the visible button count so stacked sections never clip.
 	var shown := 0
-	for button in [rail_guide_save_button, rail_guide_close_button, rail_guide_face_button, rail_guide_delete_button, rail_guide_transform_button, rail_guide_rot_button, rail_draw_brush_button, rail_draw_props_button, rail_draw_taper_button, rail_draw_shape_button, rail_guide_new_button, rail_select_mode_button, rail_select_group_button, rail_select_all_button, rail_select_clear_button, rail_mode_move_button, rail_mode_rotate_button, rail_mode_scale_button, rail_select_duplicate_button, rail_select_mirror_button, rail_select_delete_button, rail_erase_radius_button]:
+	for button in [rail_guide_save_button, rail_guide_close_button, rail_guide_face_button, rail_guide_delete_button, rail_guide_transform_button, rail_guide_rot_button, rail_vertex_button, rail_draw_brush_button, rail_draw_props_button, rail_draw_taper_button, rail_draw_shape_button, rail_guide_new_button, rail_select_mode_button, rail_select_group_button, rail_select_all_button, rail_select_clear_button, rail_mode_move_button, rail_mode_rotate_button, rail_mode_scale_button, rail_select_duplicate_button, rail_select_mirror_button, rail_select_delete_button, rail_erase_radius_button]:
 		if button != null and button.visible:
 			shown += 1
 	var half := clampf(shown * 28.0 + 8.0, 60.0, get_viewport().get_visible_rect().size.y / 2.0 - 90.0)
@@ -1665,9 +1670,11 @@ func refresh_context_rail() -> void:
 	var draw_active := tool == "draw"
 	var select_active := tool == "select" and not guide_active
 	var erase_active := tool == "erase" and not guide_active
-	for button in [rail_guide_save_button, rail_guide_close_button, rail_guide_face_button, rail_guide_delete_button, rail_guide_transform_button, rail_guide_rot_button]:
+	for button in [rail_guide_save_button, rail_guide_close_button, rail_guide_face_button, rail_guide_delete_button, rail_guide_transform_button, rail_guide_rot_button, rail_vertex_button]:
 		if button != null:
 			button.visible = guide_active
+	if rail_vertex_button != null:
+		rail_vertex_button.set_pressed_no_signal(vertex_edit)
 	for button in [rail_draw_brush_button, rail_draw_props_button, rail_draw_taper_button, rail_draw_shape_button]:
 		if button != null:
 			button.visible = draw_active
@@ -2158,6 +2165,8 @@ func build_ui() -> void:
 	rail_guide_face_button = button_in(context_rail, "Hadap guide", face_guide)
 	rail_guide_delete_button = button_in(context_rail, "Hapus guide aktif", guides.delete_active)
 	rail_guide_transform_button = button_in(context_rail, "Transformasi guide", edit_guide_transform)
+	rail_vertex_button = button_in(context_rail, "Vertex objek", func(): set_vertex_edit(not vertex_edit))
+	rail_vertex_button.toggle_mode = true
 	rail_guide_rot_button = button_in(context_rail, "Putar 90°", show_rail_rotate_menu)
 	rail_rotate_menu = PopupMenu.new()
 	for axis_name in ["Sumbu X", "Sumbu Y", "Sumbu Z"]:
@@ -2237,7 +2246,7 @@ func build_ui() -> void:
 	rail_erase_radius_popup = build_compact_value_popup("Radius eraser", 4.0, 100.0, 1.0, eraser.radius, func(value: float):
 		set_eraser_radius(value)
 	, func(value: float): return ": %d px" % roundi(value))
-	for rail_button in [rail_guide_save_button, rail_guide_close_button, rail_guide_face_button, rail_guide_delete_button, rail_guide_transform_button, rail_guide_rot_button, rail_draw_brush_button, rail_draw_props_button, rail_draw_taper_button, rail_draw_shape_button, rail_guide_new_button, rail_select_mode_button, rail_select_group_button, rail_select_all_button, rail_select_clear_button, rail_mode_move_button, rail_mode_rotate_button, rail_mode_scale_button, rail_select_duplicate_button, rail_select_mirror_button, rail_select_delete_button, rail_erase_radius_button]:
+	for rail_button in [rail_guide_save_button, rail_guide_close_button, rail_guide_face_button, rail_guide_delete_button, rail_guide_transform_button, rail_guide_rot_button, rail_vertex_button, rail_draw_brush_button, rail_draw_props_button, rail_draw_taper_button, rail_draw_shape_button, rail_guide_new_button, rail_select_mode_button, rail_select_group_button, rail_select_all_button, rail_select_clear_button, rail_mode_move_button, rail_mode_rotate_button, rail_mode_scale_button, rail_select_duplicate_button, rail_select_mirror_button, rail_select_delete_button, rail_erase_radius_button]:
 		rail_button.custom_minimum_size = Vector2(48, 48)
 		rail_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		rail_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -2541,6 +2550,7 @@ func restore_document(data: Dictionary) -> void:
 		strokes.append(stroke)
 	sequence = data.get("sequence", []).duplicate(true)
 	apply_environment(data.get("environment", Store.default_environment()))
+	selected_guide_vertices.clear()
 	sequence_next_id = 0
 	for shot in sequence:
 		sequence_next_id = maxi(sequence_next_id, int(shot.id) + 1)
@@ -2881,6 +2891,20 @@ func edit_at(screen: Vector2) -> void:
 	if tool == "erase":
 		eraser.begin(screen)
 		eraser.finish()
+	elif vertex_edit and tool == "select":
+		# Vertex mode is modal: taps only touch guide vertices, never ink.
+		var picked := pick_guide_vertex(screen)
+		if picked < 0:
+			clear_vertex_selection()
+			return
+		if selected_guide_vertices.has(picked):
+			selected_guide_vertices.erase(picked)
+		else:
+			selected_guide_vertices.append(picked)
+		var surface: MeshInstance3D = guides.current()
+		if surface != null:
+			surface.set_selected_vertices(selected_guide_vertices)
+		update_status()
 	else:
 		choose_stroke(pick_stroke(screen))
 
@@ -3029,6 +3053,103 @@ func transform_guide(offset: Vector3, angle: float = 0.0, factor: float = 1.0, r
 		checkpoint()
 	surface.apply_transform(center, rotation_basis, factor, offset)
 	changed()
+
+func transform_guide_vertices(offset: Vector3, angle: float = 0.0, factor: float = 1.0, rotation_axis: Vector3 = Vector3.ZERO, record_history: bool = true) -> void:
+	# Move/rotate/scale a subset of the active guide's vertices about their
+	# own center. Stays inside the grid topology, so the file format is untouched.
+	finish_stroke()
+	if not vertex_edit or selected_guide_vertices.is_empty():
+		return
+	var surface: MeshInstance3D = guides.current()
+	if surface == null:
+		return
+	var points: PackedVector3Array = surface.corners if surface.kind == "plane" else surface.vertices
+	var indices: Array[int] = []
+	var center := Vector3.ZERO
+	for i in selected_guide_vertices:
+		var idx := int(i)
+		if idx < 0 or idx >= points.size():
+			continue
+		indices.append(idx)
+		center += points[idx]
+	if indices.is_empty():
+		return
+	center /= float(indices.size())
+	var axis: Vector3 = rotation_axis if rotation_axis.length_squared() > 0.01 else camera.basis.z
+	var rotation_basis := Basis(axis.normalized(), deg_to_rad(angle))
+	var moved: PackedVector3Array = points.duplicate()
+	for idx in indices:
+		var result: Vector3 = center + rotation_basis * ((points[idx] - center) * factor) + offset
+		if not result.is_finite() or maxf(absf(result.x), maxf(absf(result.y), absf(result.z))) > 100000:
+			return
+		moved[idx] = result
+	# A plane cannot bend one corner and stay a rectangle (format rule), so
+	# the first vertex edit promotes it to an equivalent 2x2 mesh.
+	var candidate: Dictionary = surface.serialize()
+	var encoded := []
+	for point in moved:
+		encoded.append([point.x, point.y, point.z])
+	candidate["kind"] = "mesh"
+	candidate["vertices"] = encoded
+	if surface.kind == "plane":
+		candidate["columns"] = 2
+		candidate["rows"] = 2
+	candidate.erase("corners")
+	if not Store.validate_mesh(candidate).is_empty():
+		return
+	if record_history:
+		checkpoint()
+	if surface.kind == "plane":
+		surface.kind = "mesh"
+		surface.columns = 2
+		surface.rows = 2
+		surface.corners = PackedVector3Array()
+	surface.vertices = moved
+	surface.rebuild()
+	changed()
+
+func set_vertex_edit(value: bool) -> void:
+	vertex_edit = value
+	if value:
+		finish_stroke()
+		clear_selection()
+	else:
+		clear_vertex_selection()
+	update_status()
+
+func clear_vertex_selection() -> void:
+	selected_guide_vertices.clear()
+	if guides != null:
+		var surface: MeshInstance3D = guides.current()
+		if surface != null and is_instance_valid(surface):
+			surface.set_selected_vertices([])
+	update_status()
+
+func pick_guide_vertex(screen: Vector2) -> int:
+	var surface: MeshInstance3D = guides.current()
+	if surface == null or not surface.visible:
+		return -1
+	var result: Array = surface.intersect_ray_full(camera.project_ray_origin(screen), camera.project_ray_normal(screen))
+	if result[0] == null:
+		return -1
+	var candidates: Array[int] = []
+	if surface.kind == "plane":
+		candidates.assign([0, 1, 2] if int(result[1]) == 0 else [0, 2, 3])
+	else:
+		var base := int(result[1])
+		candidates.assign([surface.index_cache[base], surface.index_cache[base + 1], surface.index_cache[base + 2]])
+	var points: PackedVector3Array = surface.corners if surface.kind == "plane" else surface.vertices
+	var best := -1
+	var best_px := 28.0
+	for i in candidates:
+		var idx := int(i)
+		if idx < 0 or idx >= points.size():
+			continue
+		var distance_px: float = camera.unproject_position(points[idx]).distance_to(screen)
+		if distance_px < best_px:
+			best_px = distance_px
+			best = idx
+	return best
 
 func move_cursor(offset: Vector3) -> void:
 	# Session-only nudge of the 3D cursor: no history, no document change.

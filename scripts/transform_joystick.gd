@@ -36,6 +36,25 @@ func cursor_active() -> bool:
 		return false
 	return guide_target() == null
 
+func vertex_active() -> bool:
+	if not is_instance_valid(app) or not app.vertex_edit:
+		return false
+	if not app.selected_guide_vertices.is_empty() and app.guides != null and app.guides.current() != null:
+		return true
+	return false
+
+func vertex_points() -> PackedVector3Array:
+	var result := PackedVector3Array()
+	if not vertex_active():
+		return result
+	var surface: MeshInstance3D = app.guides.current()
+	var points: PackedVector3Array = surface.corners if surface.kind == "plane" else surface.vertices
+	for i in app.selected_guide_vertices:
+		var idx := int(i)
+		if idx >= 0 and idx < points.size():
+			result.append(points[idx])
+	return result
+
 func selected_points() -> PackedVector3Array:
 	if not is_instance_valid(app) or app.liquify_active:
 		return PackedVector3Array()
@@ -45,6 +64,9 @@ func selected_points() -> PackedVector3Array:
 			if is_instance_valid(stroke):
 				result.append_array(stroke.points)
 		return result
+	var vertex_selected := vertex_points()
+	if not vertex_selected.is_empty():
+		return vertex_selected
 	var surface := guide_target()
 	if surface == null:
 		if cursor_active():
@@ -177,7 +199,7 @@ func _input(event: InputEvent) -> void:
 			if was_dragging:
 				get_viewport().set_input_as_handled()
 	elif event is InputEventMouseMotion and dragging:
-		if app.liquify_active or (app.selected_strokes.is_empty() and guide_target() == null and not cursor_active()):
+		if app.liquify_active or (app.selected_strokes.is_empty() and guide_target() == null and not cursor_active() and not vertex_active()):
 			dragging = false
 			handle = ""
 			return
@@ -189,6 +211,7 @@ func _input(event: InputEvent) -> void:
 		var delta: Vector2 = local_position - last_position
 		last_position = local_position
 		var for_cursor := cursor_active()
+		var for_vertex := vertex_active()
 		if not history_started and not for_cursor:
 			app.checkpoint()
 			history_started = true
@@ -200,6 +223,8 @@ func _input(event: InputEvent) -> void:
 			var shift: Vector3 = axis_vector(handle) * delta.dot(direction) * view_scale
 			if for_strokes:
 				app.transform_group(shift, 0, 1, Vector3.ZERO, false, true)
+			elif for_vertex:
+				app.transform_guide_vertices(shift, 0, 1, Vector3.ZERO, false)
 			elif not for_cursor:
 				app.transform_guide(shift, 0, 1, Vector3.ZERO, false)
 			else:
@@ -210,12 +235,16 @@ func _input(event: InputEvent) -> void:
 			rotate_last_angle = current_angle
 			if for_strokes:
 				app.transform_group(Vector3.ZERO, angle_delta, 1, axis_vector(handle), false, true)
+			elif for_vertex:
+				app.transform_guide_vertices(Vector3.ZERO, angle_delta, 1, axis_vector(handle), false)
 			else:
 				app.transform_guide(Vector3.ZERO, angle_delta, 1, axis_vector(handle), false)
 		else:
 			var amount := 1.0 + (delta.x + delta.y) * 0.004
 			if for_strokes:
 				app.transform_group(Vector3.ZERO, 0, clampf(amount, 0.9, 1.1), Vector3.ZERO, false, true)
+			elif for_vertex:
+				app.transform_guide_vertices(Vector3.ZERO, 0, clampf(amount, 0.9, 1.1), Vector3.ZERO, false)
 			else:
 				app.transform_guide(Vector3.ZERO, 0, clampf(amount, 0.9, 1.1), Vector3.ZERO, false)
 		get_viewport().set_input_as_handled()

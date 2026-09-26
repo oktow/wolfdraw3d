@@ -46,6 +46,8 @@ Kriteria: buat dua guide dari sudut berbeda, gambar di masing-masing, tutup/simp
 - [ ] Bend lanjutan dengan rotasi penampang/deformasi bertumpuk.
 - [ ] Normal goresan dan penghalusan yang mengikuti permukaan melengkung.
 - [x] Transformasi guide aktif (geser/putar/skala via gizmo viewport, tinta tidak ikut, undoable).
+- [x] Objek guide bernama (rename, undoable). Mode Vertex tahap 1: tap-seleksi + transform subset, grid tetap.
+- [ ] Mode Edge/Face + extrude baris tepi.
 - [ ] Isolasi seleksi/penghapusan sesuai guide.
 - [x] Uji bentuk melengkung/bersudut, ray dua sisi, tinta pada mesh, undo/redo, format v3, migrasi v1/v2, dan pembatalan multitouch.
 

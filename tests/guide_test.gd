@@ -291,6 +291,7 @@ func run(app: Node) -> void:
 	assert(await preload("res://tests/ink_test.gd").new().run(app, temp))
 	assert(await preload("res://tests/shape_test.gd").new().run(app, temp))
 	assert(preload("res://tests/env_test.gd").new().run(app))
+	assert(preload("res://tests/mesh_edit_test.gd").new().run(app))
 	app.yaw = 0.65
 	app.pitch = 0.3
 	app.distance = 13

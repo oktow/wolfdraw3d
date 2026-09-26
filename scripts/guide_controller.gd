@@ -19,6 +19,7 @@ var save_button: Button
 var close_button: Button
 var cancel_button: Button
 var picker: OptionButton
+var guide_name_field: LineEdit
 var activate_button: Button
 var visibility_button: Button
 var opacity_slider: HSlider
@@ -490,6 +491,7 @@ func close_active() -> void:
 		return
 	app.checkpoint()
 	active_id = -1
+	app.clear_vertex_selection()
 	if surface.saved:
 		surface.hide()
 	else:
@@ -504,8 +506,9 @@ func activate_picked() -> void:
 	if surface == null or current() != null:
 		return
 	app.finish_stroke()
-	cancel_placing()
+	cancel_preview()
 	app.checkpoint()
+	app.clear_vertex_selection()
 	surface.show()
 	active_id = surface.guide_id
 	refresh()
@@ -524,6 +527,21 @@ func toggle_visibility() -> void:
 	refresh()
 	app.changed()
 
+func rename_target(title: String) -> void:
+	var clean := title.strip_edges().left(80)
+	if clean.is_empty():
+		return
+	var surface := current()
+	if surface == null:
+		surface = picked()
+	if surface == null:
+		return
+	app.finish_stroke()
+	app.checkpoint()
+	surface.title = clean
+	refresh()
+	app.changed()
+
 func delete_picked() -> void:
 	var surface := picked()
 	if surface == null:
@@ -532,6 +550,7 @@ func delete_picked() -> void:
 	app.checkpoint()
 	if surface.guide_id == active_id:
 		active_id = -1
+	app.clear_vertex_selection()
 	surfaces.erase(surface)
 	app.remove_child(surface)
 	surface.queue_free()
@@ -652,6 +671,9 @@ func refresh() -> void:
 	activate_button.disabled = picker.item_count == 0 or surface != null
 	visibility_button.disabled = picker.item_count == 0
 	delete_button.disabled = picker.item_count == 0
+	var named := surface if surface != null else picked()
+	if named != null and guide_name_field != null and not guide_name_field.has_focus():
+		guide_name_field.text = named.title
 	app.update_status()
 
 func build_controls(column: VBoxContainer) -> void:
@@ -733,4 +755,13 @@ func build_controls(column: VBoxContainer) -> void:
 	activate_button = app.button_in(resource_actions, "Aktifkan guide", activate_picked)
 	visibility_button = app.button_in(resource_actions, "Tampil / sembunyi", toggle_visibility)
 	delete_button = app.button_in(resource_actions, "Hapus guide tersimpan", delete_picked)
+	var rename_row := HBoxContainer.new()
+	column.add_child(rename_row)
+	guide_name_field = LineEdit.new()
+	guide_name_field.custom_minimum_size = Vector2(140, 40)
+	guide_name_field.max_length = 80
+	rename_row.add_child(guide_name_field)
+	var rename_button: Button = app.button_in(rename_row, "Ubah nama", func(): rename_target(guide_name_field.text))
+	rename_button.tooltip_text = Localization.translate("Menerapkan nama objek pada guide aktif atau terpilih.")
+	guide_name_field.text_submitted.connect(func(_text: String): rename_target(guide_name_field.text))
 	refresh()

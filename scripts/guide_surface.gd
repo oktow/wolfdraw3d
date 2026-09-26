@@ -13,6 +13,7 @@ var rows := 2
 var index_cache := PackedInt32Array()
 var hit_normal := Vector3.BACK
 var bounds := AABB()
+var selected_verts: Array[int] = []
 # Uniform-grid spatial index for dense meshes (built in rebuild, used by
 # intersect_ray). Small meshes keep the plain linear scan.
 const GRID_TRI_THRESHOLD := 1500
@@ -293,12 +294,12 @@ func slab_interval(origin: Vector3, direction: Vector3) -> Vector2:
 				return Vector2(-1, -1)
 	return Vector2(tmin, tmax)
 
-func intersect_ray_grid(origin: Vector3, direction: Vector3) -> Variant:
+func intersect_ray_grid(origin: Vector3, direction: Vector3) -> Array:
 	# Ordered voxel walk (Amanatides-Woo): cells nearest the ray origin are
 	# tested first, and the walk stops once cells lie beyond the best hit.
 	var interval := slab_interval(origin, direction)
 	if interval.x < 0.0:
-		return null
+		return [null, -1]
 	var point: Vector3 = origin + direction * interval.x
 	var cell := cell_of(point)
 	var step := Vector3i(1 if direction.x > 0 else -1, 1 if direction.y > 0 else -1, 1 if direction.z > 0 else -1)
@@ -315,6 +316,7 @@ func intersect_ray_grid(origin: Vector3, direction: Vector3) -> Variant:
 			delta[axis] = absf(grid_step[axis] / d)
 	var closest: Variant = null
 	var best := INF
+	var best_base := -1
 	var dir_scale := direction.length_squared()
 	var guard := 0
 	while guard < 4096:
@@ -328,6 +330,7 @@ func intersect_ray_grid(origin: Vector3, direction: Vector3) -> Variant:
 					if dist < best:
 						closest = candidate
 						best = dist
+						best_base = b
 						hit_normal = (vertices[index_cache[b + 1]] - vertices[index_cache[b]]).cross(vertices[index_cache[b + 2]] - vertices[index_cache[b]]).normalized()
 		var next := minf(advance.x, minf(advance.y, advance.z))
 		if next > interval.y or (best < INF and next * next * dir_scale > best):
@@ -343,16 +346,19 @@ func intersect_ray_grid(origin: Vector3, direction: Vector3) -> Variant:
 			advance.z += delta.z
 		if cell.x < 0 or cell.y < 0 or cell.z < 0 or cell.x >= grid_dims.x or cell.y >= grid_dims.y or cell.z >= grid_dims.z:
 			break
-	return closest
+	return [closest, best_base]
 
-func intersect_ray(origin: Vector3, direction: Vector3) -> Variant:
+func intersect_ray_full(origin: Vector3, direction: Vector3) -> Array:
+	# [hit point or null, triangle base index into index_cache (mesh) or
+	# 0/1 (plane), -1 on a miss]. Powers sub-object picking.
 	if kind == "mesh":
 		if grid_cells.is_empty():
 			if not ray_hits_bounds(origin, direction):
-				return null
+				return [null, -1]
 			var indices := index_cache
 			var closest: Variant = null
 			var best := INF
+			var best_base := -1
 			for i in range(0, indices.size(), 3):
 				var candidate: Variant = Geometry3D.ray_intersects_triangle(origin, direction, vertices[indices[i]], vertices[indices[i + 1]], vertices[indices[i + 2]])
 				if candidate != null:
@@ -360,17 +366,22 @@ func intersect_ray(origin: Vector3, direction: Vector3) -> Variant:
 					if dist < best:
 						closest = candidate
 						best = dist
+						best_base = i
 						hit_normal = (vertices[indices[i + 1]] - vertices[indices[i]]).cross(vertices[indices[i + 2]] - vertices[indices[i]]).normalized()
-			return closest
+			return [closest, best_base]
 		return intersect_ray_grid(origin, direction)
 	# Query the actual triangles, including their back faces and finite bounds.
 	hit_normal = surface_normal()
 	if absf(surface_normal().dot(direction)) < 0.0001:
-		return null
+		return [null, -1]
 	var hit: Variant = Geometry3D.ray_intersects_triangle(origin, direction, corners[0], corners[1], corners[2])
-	if hit == null:
-		hit = Geometry3D.ray_intersects_triangle(origin, direction, corners[0], corners[2], corners[3])
-	return hit
+	if hit != null:
+		return [hit, 0]
+	hit = Geometry3D.ray_intersects_triangle(origin, direction, corners[0], corners[2], corners[3])
+	return [hit, 1 if hit != null else -1]
+
+func intersect_ray(origin: Vector3, direction: Vector3) -> Variant:
+	return intersect_ray_full(origin, direction)[0]
 
 func set_opacity(value: float) -> void:
 	opacity = clampf(value, 0, 0.7)
@@ -388,6 +399,26 @@ func rebuild() -> void:
 	mesh = mesh_data
 	bounds = mesh_data.get_aabb()
 	build_spatial_index()
+	rebuild_grid_lines()
+	set_opacity(opacity)
+
+func set_selected_vertices(indices: Array) -> void:
+	var clean: Array[int] = []
+	var count := vertices.size() if kind == "mesh" else 4
+	for i in indices:
+		var idx := int(i)
+		if idx >= 0 and idx < count and not clean.has(idx):
+			clean.append(idx)
+	selected_verts = clean
+	rebuild_grid_lines()
+
+func guide_points() -> PackedVector3Array:
+	return vertices if kind == "mesh" else corners
+
+func rebuild_grid_lines() -> void:
+	var selected := {}
+	for idx in selected_verts:
+		selected[idx] = true
 	var lines := ImmediateMesh.new()
 	var line_material := StandardMaterial3D.new()
 	line_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -396,32 +427,36 @@ func rebuild() -> void:
 	if kind == "mesh":
 		# Sparse cross-lines keep long freehand profiles readable.
 		for row in rows:
-			lines.surface_set_color(Color("ffb76c") if row == 0 else Color("496771"))
 			for column in range(columns - 1):
-				lines.surface_add_vertex(vertices[row * columns + column])
-				lines.surface_add_vertex(vertices[row * columns + column + 1])
-		lines.surface_set_color(Color("496771"))
+				var a := row * columns + column
+				lines.surface_set_color(Color("ffc570") if selected.has(a) or selected.has(a + 1) else (Color("ffb76c") if row == 0 else Color("496771")))
+				lines.surface_add_vertex(vertices[a])
+				lines.surface_add_vertex(vertices[a + 1])
 		for column in range(0, columns, maxi(1, columns / 12)):
 			for row in range(rows - 1):
-				lines.surface_add_vertex(vertices[row * columns + column])
-				lines.surface_add_vertex(vertices[(row + 1) * columns + column])
-		lines.surface_end()
-		grid.mesh = lines
-		set_opacity(opacity)
-		return
-	for i in range(9):
-		var fraction := float(i) / 8
-		lines.surface_set_color(Color("496771"))
-		lines.surface_add_vertex(corners[0].lerp(corners[1], fraction))
-		lines.surface_add_vertex(corners[3].lerp(corners[2], fraction))
-		lines.surface_add_vertex(corners[0].lerp(corners[3], fraction))
-		lines.surface_add_vertex(corners[1].lerp(corners[2], fraction))
-	lines.surface_set_color(Color("ffb76c"))
-	lines.surface_add_vertex(corners[0])
-	lines.surface_add_vertex(corners[1])
+				var a := row * columns + column
+				lines.surface_set_color(Color("ffc570") if selected.has(a) or selected.has(a + columns) else Color("496771"))
+				lines.surface_add_vertex(vertices[a])
+				lines.surface_add_vertex(vertices[a + columns])
+	else:
+		for i in range(9):
+			var fraction := float(i) / 8
+			lines.surface_set_color(Color("496771"))
+			lines.surface_add_vertex(corners[0].lerp(corners[1], fraction))
+			lines.surface_add_vertex(corners[3].lerp(corners[2], fraction))
+			lines.surface_add_vertex(corners[0].lerp(corners[3], fraction))
+			lines.surface_add_vertex(corners[1].lerp(corners[2], fraction))
+		lines.surface_set_color(Color("ffb76c"))
+		lines.surface_add_vertex(corners[0])
+		lines.surface_add_vertex(corners[1])
+		for corner in selected:
+			var first: Vector3 = corners[corner]
+			for neighbor in [(corner + 1) % 4, (corner + 3) % 4]:
+				lines.surface_set_color(Color("ffc570"))
+				lines.surface_add_vertex(first)
+				lines.surface_add_vertex(first.lerp(corners[neighbor], 0.18))
 	lines.surface_end()
 	grid.mesh = lines
-	set_opacity(opacity)
 
 func serialize() -> Dictionary:
 	var points := []
@@ -434,6 +469,7 @@ func serialize() -> Dictionary:
 		"saved": saved, "visible": visible, "opacity": opacity}
 
 func restore(data: Dictionary) -> void:
+	selected_verts = []
 	guide_id = int(data.id)
 	title = data.name
 	saved = data.saved

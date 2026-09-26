@@ -39,8 +39,11 @@ func has_target() -> bool:
 func for_strokes() -> bool:
 	return not app.selected_strokes.is_empty()
 
+func for_vertex() -> bool:
+	return app.transform_joystick != null and app.transform_joystick.vertex_active()
+
 func for_cursor() -> bool:
-	return not for_strokes() and app.transform_joystick.guide_target() == null
+	return not for_strokes() and not for_vertex() and app.transform_joystick.guide_target() == null
 
 func view_scale() -> float:
 	return app.view_height() / maxf(get_viewport_rect().size.y, 1.0)
@@ -49,6 +52,8 @@ func apply_move(delta: Vector2) -> void:
 	var shift: Vector3 = (app.camera.basis.x * delta.x - app.camera.basis.y * delta.y) * view_scale()
 	if for_strokes():
 		app.transform_group(shift, 0.0, 1.0, Vector3.ZERO, false, true)
+	elif for_vertex():
+		app.transform_guide_vertices(shift, 0.0, 1.0, Vector3.ZERO, false)
 	elif for_cursor():
 		app.move_cursor(shift)
 	else:
@@ -61,6 +66,8 @@ func apply_rotate(angle_delta: float) -> void:
 	var axis: Vector3 = app.camera.basis.z
 	if for_strokes():
 		app.transform_group(Vector3.ZERO, angle_delta, 1.0, axis, false, true)
+	elif for_vertex():
+		app.transform_guide_vertices(Vector3.ZERO, angle_delta, 1.0, axis, false)
 	else:
 		app.transform_guide(Vector3.ZERO, angle_delta, 1.0, axis, false)
 
@@ -70,6 +77,8 @@ func apply_scale(amount: float) -> void:
 	var factor := clampf(amount, 0.9, 1.1)
 	if for_strokes():
 		app.transform_group(Vector3.ZERO, 0.0, factor, Vector3.ZERO, false, true)
+	elif for_vertex():
+		app.transform_guide_vertices(Vector3.ZERO, 0.0, factor, Vector3.ZERO, false)
 	else:
 		app.transform_guide(Vector3.ZERO, 0.0, factor, Vector3.ZERO, false)
 
