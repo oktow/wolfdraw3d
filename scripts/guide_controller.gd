@@ -14,8 +14,7 @@ var creation_depth := 0.0
 var opacity_before := -1.0
 var opacity_checkpointed := false
 var state_label: Label
-var create_button: Button
-var quick_button: Button
+
 var save_button: Button
 var close_button: Button
 var cancel_button: Button
@@ -30,7 +29,13 @@ var opacity_label: Label
 var action_row: HBoxContainer
 var face_button: Button
 var profile_button: Button
+var poly_button: Button
 var bend_button: Button
+const POLY_IDLE_MS := 2000
+var poly_last_msec := -1
+var cube_button: Button
+var tube_button: Button
+var primitive_row: HBoxContainer
 var length_slider: HSlider
 var length_label: Label
 var creation_mode := "plane"
@@ -47,6 +52,79 @@ func start_profile() -> void:
 	start_placing()
 	if placing:
 		creation_mode = "profile"
+		app.set_finger_drawing(true)
+		refresh()
+
+func start_plane_taps() -> void:
+	if current() != null:
+		return
+	start_placing()
+	if placing:
+		creation_mode = "plane_taps"
+		app.set_finger_drawing(true)
+		refresh()
+
+func start_polyline() -> void:
+	if current() != null:
+		return
+	start_placing()
+	if placing:
+		creation_mode = "polyline"
+		app.set_finger_drawing(true)
+		refresh()
+
+func start_curve() -> void:
+	if current() != null:
+		return
+	start_placing()
+	if placing:
+		creation_mode = "curve"
+		app.set_finger_drawing(true)
+		refresh()
+
+func simplify_profile(points: PackedVector3Array, limit: int) -> PackedVector3Array:
+	while points.size() > limit:
+		var least := INF
+		var remove_index := 1
+		for i in range(1, points.size() - 1):
+			var error := points[i].distance_squared_to(Geometry3D.get_closest_point_to_segment(points[i], points[i - 1], points[i + 1]))
+			if error < least:
+				least = error
+				remove_index = i
+		points.remove_at(remove_index)
+	return points
+
+func smooth_chaikin(points: PackedVector3Array) -> PackedVector3Array:
+	# Two Chaikin passes with fixed endpoints, capped for the mesh format.
+	if points.size() < 3:
+		return points
+	var result := points
+	for iteration in 2:
+		var refined := PackedVector3Array([result[0]])
+		for i in range(result.size() - 1):
+			var a := result[i]
+			var b := result[i + 1]
+			refined.append(a.lerp(b, 0.25))
+			refined.append(a.lerp(b, 0.75))
+		refined.append(result[result.size() - 1])
+		result = refined
+	return simplify_profile(result, 256)
+
+func start_cube() -> void:
+	if current() != null:
+		return
+	start_placing()
+	if placing:
+		creation_mode = "cube"
+		app.set_finger_drawing(true)
+		refresh()
+
+func start_tube() -> void:
+	if current() != null:
+		return
+	start_placing()
+	if placing:
+		creation_mode = "tube"
 		app.set_finger_drawing(true)
 		refresh()
 
@@ -107,8 +185,23 @@ func plane_hit(screen: Vector2) -> Variant:
 func begin_preview(screen: Vector2) -> void:
 	if not placing:
 		return
+	if creation_mode == "polyline" and preview != null:
+		# Every click appends a vertex; release never commits (see finish_preview).
+		var extra: Variant = plane_hit(screen)
+		if extra == null or screen.distance_to(last_screen) < 3:
+			return
+		profile.append(extra)
+		profile = simplify_profile(profile, 256)
+		last_screen = screen
+		poly_last_msec = Time.get_ticks_msec()
+		preview.configure_profile(profile, -creation_frame.basis.z * sweep_length, true)
+		preview.show()
+		return
+	if creation_mode == "plane_taps" and not profile.is_empty():
+		commit_tap_corner(screen)
+		return
 	cancel_preview()
-	creation_frame = Transform3D(app.camera.global_basis, app.target + app.camera.global_basis.z * minf(creation_depth, app.distance - 0.5))
+	creation_frame = Transform3D(app.camera.global_basis, app.cursor_pos + app.camera.global_basis.z * minf(creation_depth, app.distance - 0.5))
 	var hit: Variant = plane_hit(screen)
 	if hit == null:
 		return
@@ -121,27 +214,58 @@ func begin_preview(screen: Vector2) -> void:
 	app.add_child(preview)
 	preview.hide()
 
+func preview_rubber(screen: Vector2) -> void:
+	# Mouse hover shows the pending polyline segment without adding a vertex.
+	if preview == null or creation_mode != "polyline" or profile.is_empty():
+		return
+	var hit: Variant = plane_hit(screen)
+	if hit == null:
+		return
+	var rubber := profile.duplicate()
+	rubber.append(hit)
+	preview.configure_profile(rubber, -creation_frame.basis.z * sweep_length, true)
+	preview.show()
+
 func extend_preview(screen: Vector2) -> void:
 	if preview == null:
 		return
 	var hit: Variant = plane_hit(screen)
 	if hit == null:
 		return
-	if creation_mode != "plane":
+	if creation_mode == "cube":
+		var local_cube: Vector3 = creation_frame.affine_inverse() * hit
+		var end_cube := Vector2(local_cube.x, local_cube.y)
+		var drag_size := (end_cube - drag_origin).abs()
+		var edge := maxf(drag_size.x, drag_size.y)
+		if edge < 0.05:
+			preview.hide()
+			return
+		var middle := (end_cube + drag_origin) / 2
+		var cube_center: Vector3 = creation_frame * Vector3(middle.x, middle.y, 0)
+		preview.configure_cube(cube_center, creation_frame.basis, edge)
+		preview.show()
+		return
+	if creation_mode == "tube":
+		if profile.is_empty():
+			return
+		# Touch point is the cap center; drag distance outward is the radius.
+		var tube_radius: float = hit.distance_to(profile[0])
+		if tube_radius < 0.05:
+			preview.hide()
+			return
+		tube_radius = minf(tube_radius, 3.0)
+		var tube_axis: Vector3 = -creation_frame.basis.z.normalized()
+		preview.configure_tube(profile[0], tube_axis, tube_radius, sweep_length)
+		preview.show()
+		return
+	if creation_mode != "plane" and creation_mode != "plane_taps":
 		if screen.distance_to(last_screen) < 3:
 			return
 		profile.append(hit)
 		# Preserve endpoints and the strongest corners when the sample cap is reached.
-		var limit := 64 if creation_mode == "bend" else 256
-		if profile.size() > limit:
-			var least := INF
-			var remove_index := 1
-			for i in range(1, profile.size() - 1):
-				var error := profile[i].distance_squared_to(Geometry3D.get_closest_point_to_segment(profile[i], profile[i - 1], profile[i + 1]))
-				if error < least:
-					least = error
-					remove_index = i
-			profile.remove_at(remove_index)
+		profile = simplify_profile(profile, 64 if creation_mode == "bend" else 256)
+		if creation_mode == "polyline":
+			poly_last_msec = Time.get_ticks_msec()
 		last_screen = screen
 		if creation_mode == "bend":
 			if current() == null:
@@ -149,7 +273,10 @@ func extend_preview(screen: Vector2) -> void:
 				return
 			preview.configure_bend(current(), profile)
 		else:
-			preview.configure_profile(profile, -creation_frame.basis.z * sweep_length)
+			var surface_profile := profile
+			if creation_mode == "curve":
+				surface_profile = smooth_chaikin(profile)
+			preview.configure_profile(surface_profile, -creation_frame.basis.z * sweep_length, true)
 		preview.show()
 		return
 	var local: Vector3 = creation_frame.affine_inverse() * hit
@@ -164,12 +291,35 @@ func extend_preview(screen: Vector2) -> void:
 	preview.configure(frame, size)
 	preview.show()
 
-func finish_preview() -> void:
+func tick_polyline_idle() -> void:
+	# No new vertices for a while: the polyline finishes itself.
+	if not placing or creation_mode != "polyline" or poly_last_msec < 0:
+		return
+	if profile.size() >= 3 and Time.get_ticks_msec() - poly_last_msec >= POLY_IDLE_MS:
+		poly_last_msec = -1
+		finish_preview(true)
+
+func finish_preview(force := false) -> void:
 	app.shape_assist.finalize()
 	if preview == null:
 		return
+	if creation_mode == "polyline" and not force:
+		# Clicks only append vertices; commit via the Done button or double-tap.
+		return
+	if creation_mode == "polyline" and profile.size() < 3:
+		# Two points make a straight edge whose extrusion ends up edge-on to
+		# the viewer; a polygon needs at least three corners. Stay in mode.
+		app.status.text = Localization.translate("Poligonal butuh minimal 3 titik.")
+		return
+	if creation_mode == "plane_taps" and not force:
+		# Taps only set corners; the second tap commits through begin_preview.
+		return
 	if not preview.visible:
-		cancel_preview()
+		if creation_mode == "polyline":
+			app.status.text = Localization.translate("Tambahkan minimal dua titik.")
+			cancel_placing()
+		else:
+			cancel_preview()
 		return
 	if preview.kind == "mesh":
 		var candidate: Dictionary = preview.serialize()
@@ -240,15 +390,76 @@ func create_loft(profiles: Array[PackedVector3Array]) -> void:
 	preview.configure_loft(profiles, loft_tension)
 	finish_preview()
 
+func primitive_frame() -> Transform3D:
+	return Transform3D(app.camera.global_basis, app.cursor_pos + app.camera.global_basis.z * minf(creation_depth, app.distance - 0.5))
+
+func create_cube() -> void:
+	if current() != null or surfaces.size() >= 100:
+		return
+	app.finish_stroke()
+	cancel_preview()
+	creation_mode = "primitive"
+	var frame := primitive_frame()
+	preview = Surface.new()
+	app.add_child(preview)
+	preview.configure_cube(frame.origin, frame.basis, clampf(sweep_length * 0.5, 0.25, 6.0))
+	finish_preview()
+
+func create_tube() -> void:
+	if current() != null or surfaces.size() >= 100:
+		return
+	app.finish_stroke()
+	cancel_preview()
+	creation_mode = "primitive"
+	var frame := primitive_frame()
+	preview = Surface.new()
+	app.add_child(preview)
+	preview.configure_tube(frame.origin, -frame.basis.z.normalized(),
+		clampf(sweep_length * 0.06, 0.05, 0.8), sweep_length)
+	finish_preview()
+
+func create_line() -> void:
+	if current() != null or surfaces.size() >= 100:
+		return
+	app.finish_stroke()
+	cancel_preview()
+	creation_mode = "primitive"
+	var frame := primitive_frame()
+	var depth: float = app.distance - minf(creation_depth, app.distance - 0.5)
+	preview = Surface.new()
+	app.add_child(preview)
+	preview.configure_line(frame.origin, frame.basis, sweep_length,
+		clampf(app.view_height(depth) * 0.015, 0.03, 0.25))
+	finish_preview()
+
 func quick_plane() -> void:
-	var frame := Transform3D(app.camera.global_basis, app.target + app.camera.global_basis.z * minf(creation_depth, app.distance - 0.5))
+	var frame := Transform3D(app.camera.global_basis, app.cursor_pos + app.camera.global_basis.z * minf(creation_depth, app.distance - 0.5))
 	var height: float = app.view_height(app.distance - minf(creation_depth, app.distance - 0.5)) * 0.6
 	create_plane(frame, Vector2(height * 1.3, height))
 	app.set_tool("draw")
 
+func commit_tap_corner(screen: Vector2) -> void:
+	# Second tap of plane_taps: opposite rectangle corner commits at once.
+	var hit: Variant = plane_hit(screen)
+	if hit == null:
+		return
+	var local: Vector3 = creation_frame.affine_inverse() * hit
+	var end := Vector2(local.x, local.y)
+	var size := (end - drag_origin).abs()
+	if minf(size.x, size.y) < 0.05:
+		app.status.text = Localization.translate("Ketuk lebih jauh untuk ukuran bidang.")
+		return
+	var frame := creation_frame
+	var middle := (end + drag_origin) / 2
+	frame.origin = creation_frame * Vector3(middle.x, middle.y, 0)
+	preview.configure(frame, size)
+	preview.show()
+	finish_preview(true)
+
 func cancel_preview() -> void:
 	if app.shape_assist != null and app.shape_assist.guide_target:
 		app.shape_assist.cancel()
+	profile = PackedVector3Array()
 	if preview != null:
 		app.remove_child(preview)
 		preview.queue_free()
@@ -327,6 +538,19 @@ func delete_picked() -> void:
 	refresh()
 	app.changed()
 
+func delete_active() -> void:
+	var surface := current()
+	if surface == null:
+		return
+	app.finish_stroke()
+	app.checkpoint()
+	active_id = -1
+	surfaces.erase(surface)
+	app.remove_child(surface)
+	surface.queue_free()
+	refresh()
+	app.changed()
+
 func begin_opacity() -> void:
 	app.finish_stroke()
 	if current() != null:
@@ -375,17 +599,37 @@ func refresh() -> void:
 	if state_label == null:
 		return
 	var surface := current()
-	state_label.text = (Localization.translate("Gambar garis Bend") if creation_mode == "bend" else (Localization.translate("Gambar profil bebas") if creation_mode == "profile" else Localization.translate("Tarik area di kanvas"))) if placing else ((surface.title + " " + Localization.translate("aktif")) if surface != null else Localization.translate("Belum ada guide aktif"))
+	if placing:
+		var placing_text := Localization.translate("Tarik area di kanvas")
+		if creation_mode == "bend":
+			placing_text = Localization.translate("Gambar garis Bend")
+		elif creation_mode == "profile":
+			placing_text = Localization.translate("Gambar profil bebas")
+		elif creation_mode == "polyline":
+			placing_text = Localization.translate("Klik titik poligonal")
+		elif creation_mode == "curve":
+			placing_text = Localization.translate("Gambar kurva bebas")
+		elif creation_mode == "cube":
+			placing_text = Localization.translate("Tarik area untuk ukuran cube")
+		elif creation_mode == "tube":
+			placing_text = Localization.translate("Tarik keluar untuk radius tube")
+		elif creation_mode == "plane_taps":
+			placing_text = Localization.translate("Ketuk sudut seberang bidang") if not profile.is_empty() else Localization.translate("Ketuk sudut pertama bidang")
+		state_label.text = placing_text
+	elif surface != null:
+		state_label.text = surface.title + " " + Localization.translate("aktif")
+	else:
+		state_label.text = Localization.translate("Belum ada guide aktif")
 	profile_button.visible = surface == null
+	poly_button.visible = surface == null
 	bend_button.visible = surface != null
 	length_slider.visible = surface == null
 	length_label.visible = surface == null
 	loft_tension_slider.visible = surface == null
 	loft_tension_label.visible = surface == null
-	create_button.disabled = surface != null
-	quick_button.disabled = surface != null
-	create_button.visible = surface == null
-	quick_button.visible = surface == null
+	primitive_row.visible = surface == null
+	cube_button.disabled = surface != null
+	tube_button.disabled = surface != null
 	depth_label.visible = surface == null
 	depth_slider.visible = surface == null
 	opacity_label.visible = surface != null
@@ -416,7 +660,12 @@ func build_controls(column: VBoxContainer) -> void:
 	var creation_actions := HBoxContainer.new()
 	column.add_child(creation_actions)
 	profile_button = app.button_in(creation_actions, "Draw: profil bebas", start_profile)
-	profile_button.tooltip_text = Localization.translate("Gambar satu garis bebas sebagai tepi awal guide, lalu orbit untuk melihat permukaannya.")
+	profile_button.tooltip_text = Localization.translate("Gambar satu garis bebas di tengah bentangan guide, lalu orbit untuk melihat permukaannya.")
+	var free_row := HBoxContainer.new()
+	column.add_child(free_row)
+	poly_button = app.button_in(free_row, "Poligonal: klik titik", start_polyline)
+	poly_button.tooltip_text = Localization.translate("Klik titik-titik sudut, lalu Selesai atau ketuk dua kali.")
+
 	length_label = app.label_in(column, "Bentangan profil: 4.0", 14)
 	length_slider = HSlider.new()
 	length_slider.min_value = 0.25
@@ -440,8 +689,12 @@ func build_controls(column: VBoxContainer) -> void:
 	column.add_child(loft_tension_slider)
 	bend_button = app.button_in(column, "Bend: gambar arah baru", start_bend)
 	bend_button.tooltip_text = Localization.translate("Garis baru mengganti arah bentangan dari tepi oranye. Tinta yang sudah ada tetap di tempat.")
-	create_button = app.button_in(creation_actions, "Buat bidang: tarik area", start_placing)
-	quick_button = app.button_in(creation_actions, "Bidang ukuran otomatis", quick_plane)
+	primitive_row = HBoxContainer.new()
+	column.add_child(primitive_row)
+	cube_button = app.button_in(primitive_row, "Cube", start_cube)
+	tube_button = app.button_in(primitive_row, "Tube", start_tube)
+	cube_button.tooltip_text = Localization.translate("Klik-drag pada kanvas untuk mengatur ukuran cube; tengah tepat di area tarikan.")
+	tube_button.tooltip_text = Localization.translate("Sentuh titik pusat, tarik keluar untuk radius tube. Panjang mengikuti Bentangan profil.")
 	cancel_button = app.button_in(column, "Batal membuat guide", cancel_placing)
 	depth_label = app.label_in(column, "Kedalaman guide baru", 14)
 	depth_slider = HSlider.new()
@@ -449,7 +702,10 @@ func build_controls(column: VBoxContainer) -> void:
 	depth_slider.max_value = 4
 	depth_slider.step = 0.25
 	depth_slider.custom_minimum_size.y = 28
-	depth_slider.value_changed.connect(func(value: float): creation_depth = value)
+	depth_slider.value_changed.connect(func(value: float):
+		creation_depth = value
+		depth_label.text = Localization.translate("Kedalaman guide baru") + ": %+.2f" % value)
+	depth_label.text = Localization.translate("Kedalaman guide baru") + ": %+.2f" % creation_depth
 	column.add_child(depth_slider)
 	opacity_label = app.label_in(column, "Opacity guide", 14)
 	opacity_slider = HSlider.new()

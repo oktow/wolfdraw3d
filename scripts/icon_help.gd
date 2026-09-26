@@ -16,7 +16,7 @@ func _init() -> void:
 	scroll.add_child(column)
 	var introduction := Label.new()
 	introduction.set_meta("locale_key", "icon_help_introduction")
-	introduction.text = Localization.translate("Arahkan mouse ke ikon untuk tooltip. Di layar sentuh, buka panduan ini lewat ikon tanda tanya.\nHijau = aktif • Redup = belum tersedia.\n\nSatu jari: putar atau gambar sesuai ikon tangan.\nDua jari: geser untuk pan, cubit/renggangkan untuk zoom.\nDraw Shape: tahan ujung sekitar 1 detik, atur bentuk, lalu lepaskan.")
+	introduction.text = Localization.translate("Arahkan mouse ke ikon untuk tooltip. Di layar sentuh, buka panduan ini lewat ikon tanda tanya.\nHijau = aktif • Redup = belum tersedia.\n\nSatu jari: putar atau gambar sesuai ikon tangan.\nDua jari: geser untuk pan, cubit/renggangkan untuk zoom.\nKetuk 2x satu jari: snap ke tampak standar.\nTahan satu jari: atur pusat orbit, tahan di ruang kosong: reset tampilan.\nKetuk 2x tiga jari: ganti proyeksi. Geser vertikal tiga jari: atur FOV.\nDraw Shape: tahan ujung sekitar 1 detik, atur bentuk, lalu lepaskan.")
 	introduction.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(introduction)
 	for title_text in Icons.ACTIONS:
@@ -47,6 +47,6 @@ func refresh_language() -> void:
 	ok_button_text = Localization.translate("Tutup panduan")
 	for node in find_children("*", "Label", true, false):
 		if node.has_meta("locale_key"):
-			node.text = Localization.translate("Arahkan mouse ke ikon untuk tooltip. Di layar sentuh, buka panduan ini lewat ikon tanda tanya.\nHijau = aktif • Redup = belum tersedia.\n\nSatu jari: putar atau gambar sesuai ikon tangan.\nDua jari: geser untuk pan, cubit/renggangkan untuk zoom.\nDraw Shape: tahan ujung sekitar 1 detik, atur bentuk, lalu lepaskan.")
+			node.text = Localization.translate("Arahkan mouse ke ikon untuk tooltip. Di layar sentuh, buka panduan ini lewat ikon tanda tanya.\nHijau = aktif • Redup = belum tersedia.\n\nSatu jari: putar atau gambar sesuai ikon tangan.\nDua jari: geser untuk pan, cubit/renggangkan untuk zoom.\nKetuk 2x satu jari: snap ke tampak standar.\nTahan satu jari: atur pusat orbit, tahan di ruang kosong: reset tampilan.\nKetuk 2x tiga jari: ganti proyeksi. Geser vertikal tiga jari: atur FOV.\nDraw Shape: tahan ujung sekitar 1 detik, atur bentuk, lalu lepaskan.")
 		elif node.has_meta("locale_title"):
 			node.text = Localization.translate(node.get_meta("locale_title")) + "\n" + Localization.translate(node.get_meta("locale_description"))

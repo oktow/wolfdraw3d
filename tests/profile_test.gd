@@ -24,9 +24,10 @@ func run(app: Node3D, temp: String) -> bool:
 	var guide = app.guides.current()
 	assert(guide != null and guide.kind == "mesh" and guide.columns > 20)
 	assert(Store.validate(app.document()).is_empty())
-	# Authored corners remain exact; the surface has world-space depth.
+	# The drawn line sits mid-surface (cursor = median); the surface has depth.
 	for i in authored.size():
-		assert(app.camera.unproject_position(guide.vertices[i + 1]).distance_to(center + authored[i]) < 0.01)
+		var mid: Vector3 = (guide.vertices[i + 1] + guide.vertices[i + 1 + guide.columns]) / 2.0
+		assert(app.camera.unproject_position(mid).distance_to(center + authored[i]) < 0.01)
 	assert(guide.vertices[0].distance_to(guide.vertices[guide.columns]) > 3.9)
 	var profile_doc: Dictionary = app.document()
 	app.undo()
@@ -115,6 +116,104 @@ func run(app: Node3D, temp: String) -> bool:
 	if "--capture" in OS.get_cmdline_user_args():
 		await RenderingServer.frame_post_draw
 		app.get_viewport().get_texture().get_image().save_png("res://build/profile-bend.png")
+	# Polyline: clicks append vertices, release never commits, Done commits.
+	# Two points are rejected (a straight edge extrudes edge-on to the view).
+	app.guides.save_active()
+	app.set_tool("draw")
+	app.guides.start_polyline()
+	assert(app.guides.placing and app.guides.creation_mode == "polyline")
+	for offset in [Vector2(-120, 40), Vector2(-40, -60)]:
+		touch.press(app, 0, center + offset)
+		touch.release(app, 0)
+	assert(app.guides.current() == null and app.guides.profile.size() == 2)
+	app.guides.finish_preview(true)
+	assert(app.guides.current() == null and app.guides.placing)
+	touch.press(app, 0, center + Vector2(60, 30))
+	touch.release(app, 0)
+	assert(app.guides.current() == null and app.guides.profile.size() == 3)
+	assert(app.guides.preview != null and app.guides.preview.visible)
+	app.guides.finish_preview(true)
+	var poly = app.guides.current()
+	assert(poly != null and poly.kind == "mesh" and poly.columns == 3)
+	assert(Store.validate(app.document()).is_empty())
+	app.undo()
+	assert(app.guides.current() == null)
+	app.undo()
+	assert(app.document() == bent)
+	# Plane taps: two opposite corner taps create the plane at once.
+	app.guides.save_active()
+	app.guides.start_plane_taps()
+	assert(app.guides.placing and app.guides.creation_mode == "plane_taps")
+	touch.press(app, 0, center + Vector2(-100, 50))
+	touch.release(app, 0)
+	assert(app.guides.current() == null and app.guides.placing)
+	touch.press(app, 0, center + Vector2(100, -50))
+	touch.release(app, 0)
+	var tap_plane = app.guides.current()
+	assert(tap_plane != null and tap_plane.kind == "plane")
+	assert(Store.validate(app.document()).is_empty())
+	app.undo()
+	assert(app.guides.current() == null)
+	app.undo()
+	assert(app.document() == bent)
+	# Curve: a dragged V is smoothed (endpoints kept, more columns than raw).
+	app.guides.save_active()
+	app.guides.start_curve()
+	assert(app.guides.placing and app.guides.creation_mode == "curve")
+	touch.press(app, 0, center + Vector2(-140, 50))
+	for i in range(1, 40):
+		touch.drag(app, 0, center + Vector2(-140 + i * 7, 50 - absf(i - 20) * 6))
+	touch.release(app, 0)
+	var curve = app.guides.current()
+	assert(curve != null and curve.kind == "mesh" and curve.columns > 40)
+	assert(curve.columns <= 256)
+	assert(Store.validate(app.document()).is_empty())
+	app.undo()
+	app.undo()
+	assert(app.document() == bent)
+	var sharp := PackedVector3Array([Vector3.ZERO, Vector3(1, 0, 0), Vector3(1, 1, 0)])
+	var smooth: PackedVector3Array = app.guides.smooth_chaikin(sharp)
+	assert(smooth[0].is_equal_approx(Vector3.ZERO) and smooth[smooth.size() - 1].is_equal_approx(Vector3(1, 1, 0)))
+	assert(smooth.size() > 3)
+	# Hold while drawing a profile auto-fits: near-straight becomes a line.
+	app.guides.save_active()
+	app.set_tool("draw")
+	app.guides.start_profile()
+	touch.press(app, 0, center + Vector2(-120, 60))
+	for i in range(1, 20):
+		touch.drag(app, 0, center + Vector2(-120 + i * 6, 60 + sin(i * 0.8) * 2))
+	app.shape_assist.tick(1.0)
+	assert(app.shape_assist.locked and app.shape_assist.model.kind == "line")
+	assert(app.guides.profile.size() == 64)
+	touch.release(app, 0)
+	var straight = app.guides.current()
+	assert(straight != null and straight.kind == "mesh" and straight.columns == 64)
+	var held: PackedVector3Array = app.guides.profile
+	var span: float = held[0].distance_to(held[held.size() - 1])
+	var deviation := 0.0
+	for point in held:
+		deviation = maxf(deviation, point.distance_to(Geometry3D.get_closest_point_to_segment(point, held[0], held[held.size() - 1])))
+	assert(deviation < span * 0.01)
+	assert(Store.validate(app.document()).is_empty())
+	app.undo()
+	app.undo()
+	assert(app.document() == bent)
+	# A clearly curved hold keeps its curve instead of straightening.
+	app.guides.save_active()
+	app.guides.start_profile()
+	touch.press(app, 0, center + Vector2(-40, 110))
+	for i in range(1, 31):
+		var angle := PI + float(i) / 30.0 * PI * 0.5
+		touch.drag(app, 0, center + Vector2(-40, 110) + Vector2(cos(angle), sin(angle)) * 80.0 - Vector2(-80, 0))
+	app.shape_assist.tick(1.0)
+	assert(app.shape_assist.locked and app.shape_assist.model.kind == "curve")
+	touch.release(app, 0)
+	var bent_curve = app.guides.current()
+	assert(bent_curve != null and bent_curve.kind == "mesh" and bent_curve.columns == 64)
+	assert(Store.validate(app.document()).is_empty())
+	app.undo()
+	app.undo()
+	assert(app.document() == bent)
 	# Long input is simplified, not truncated; retain the final point and undo state.
 	app.guides.save_active()
 	app.guides.start_profile()
@@ -129,5 +228,5 @@ func run(app: Node3D, temp: String) -> bool:
 	app.restore_document(initial)
 	app.set_finger_drawing(false)
 	app.face_guide()
-	print("PROFILE PASS: freehand corners and curves, surface ink, nearest/backface hits, Bend anchored edge, undo/redo, v3 save/load, v2 migration, cancellation, invalid mesh rejection")
+	print("PROFILE PASS: freehand corners and curves, surface ink, nearest/backface hits, Bend anchored edge, undo/redo, v3 save/load, v2 migration, cancellation, invalid mesh rejection, polyline clicks, smoothed curve, tap plane, hold straighten")
 	return true

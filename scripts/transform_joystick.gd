@@ -22,14 +22,37 @@ func _process(_delta: float) -> void:
 	if is_instance_valid(app):
 		queue_redraw()
 
+func guide_target() -> MeshInstance3D:
+	# The active guide (fresh or loaded) is transformable when no ink is selected.
+	if not is_instance_valid(app) or not app.selected_strokes.is_empty():
+		return null
+	if app.guides == null:
+		return null
+	return app.guides.current()
+
+func cursor_active() -> bool:
+	# The 3D cursor is the fallback transform target: move-only, no history.
+	if not is_instance_valid(app) or not app.selected_strokes.is_empty():
+		return false
+	return guide_target() == null
+
 func selected_points() -> PackedVector3Array:
-	if not is_instance_valid(app) or app.liquify_active or app.selected_strokes.is_empty():
+	if not is_instance_valid(app) or app.liquify_active:
 		return PackedVector3Array()
-	var result := PackedVector3Array()
-	for stroke in app.selected_strokes:
-		if is_instance_valid(stroke):
-			result.append_array(stroke.points)
-	return result
+	if not app.selected_strokes.is_empty():
+		var result := PackedVector3Array()
+		for stroke in app.selected_strokes:
+			if is_instance_valid(stroke):
+				result.append_array(stroke.points)
+		return result
+	var surface := guide_target()
+	if surface == null:
+		if cursor_active():
+			return PackedVector3Array([app.cursor_pos])
+		return PackedVector3Array()
+	if surface.kind == "plane":
+		return surface.corners.duplicate()
+	return surface.vertices.duplicate()
 
 func gizmo_center() -> Vector2:
 	var points := selected_points()
@@ -48,8 +71,8 @@ func selected_center_world() -> Vector3:
 		center += point
 	return center / float(points.size())
 
-func projected_ring(axis: Vector3, radius: float) -> PackedVector2Array:
-	var center := selected_center_world()
+func projected_ring(axis: Vector3, radius: float, world := Vector3.INF) -> PackedVector2Array:
+	var center := world if world.is_finite() else selected_center_world()
 	var first := axis.cross(Vector3.UP)
 	if first.length_squared() < 0.01:
 		first = axis.cross(Vector3.RIGHT)
@@ -64,8 +87,12 @@ func projected_ring(axis: Vector3, radius: float) -> PackedVector2Array:
 		points.append(app.camera.unproject_position(world_point))
 	return points
 
-func axis_screen(axis: Vector3, center: Vector2) -> Vector2:
+func axis_direction(axis: Vector3, center: Vector2, world: Vector3) -> Vector2:
 	# Use a stable screen direction from the world axis at the selected object's depth.
+	var end: Vector2 = app.camera.unproject_position(world + axis * 1.5)
+	return (end - center).normalized()
+
+func axis_screen(axis: Vector3, center: Vector2) -> Vector2:
 	var points := selected_points()
 	if points.is_empty() or not is_instance_valid(app.camera):
 		return Vector2.ZERO
@@ -73,44 +100,64 @@ func axis_screen(axis: Vector3, center: Vector2) -> Vector2:
 	for point in points:
 		world_center += point
 	world_center /= float(points.size())
-	var end: Vector2 = app.camera.unproject_position(world_center + axis * 1.5)
-	return (end - center).normalized()
+	return axis_direction(axis, center, world_center)
 
 func _draw() -> void:
-	if not is_instance_valid(app) or app.liquify_active or app.selected_strokes.is_empty() or app.tool != "select":
+	if not is_instance_valid(app) or app.liquify_active or app.tool != "select":
 		return
-	var center := gizmo_center()
-	if center.x < -500:
+	# Single pass over the target points per frame; helpers reuse the cached center.
+	# The 3D cursor fallback only moves, whatever mode is picked.
+	var points := selected_points()
+	if points.is_empty() or not is_instance_valid(app.camera):
 		return
+	var draw_mode := "move" if cursor_active() else mode
+	var world := Vector3.ZERO
+	for point in points:
+		world += point
+	world /= float(points.size())
+	var center: Vector2 = app.camera.unproject_position(world)
 	var length := 74.0
 	var axes := {"x": Vector3.RIGHT, "y": Vector3.UP, "z": Vector3.BACK}
 	var colors := {"x": Color("f18cae"), "y": Color("73e6bb"), "z": Color("8eb9ff")}
-	draw_circle(center, 12, Color("18232d"))
-	draw_circle(center, 6, Color("e8eff2"))
-	if mode == "rotate":
+	# Cursor fallback looks deliberately different so an empty selection is
+	# never mistaken for selected ink: dimmed handles, amber core.
+	if cursor_active():
+		for axis_name in colors:
+			colors[axis_name].a = 0.55
+		draw_circle(center, 12, Color("18232d"))
+		draw_circle(center, 6, Color("ffc570"))
+	else:
+		draw_circle(center, 12, Color("18232d"))
+		draw_circle(center, 6, Color("e8eff2"))
+	if draw_mode == "rotate":
 		draw_arc(center, 106.0, 0.0, TAU, 72, Color("e8eff2", 0.8), 3, true)
 	for axis_name in axes:
-		var direction := axis_screen(axes[axis_name], center)
+		var direction := axis_direction(axes[axis_name], center, world)
 		var end: Vector2 = center + direction * length
 		var color: Color = colors[axis_name]
-		if mode == "move":
+		if draw_mode == "move":
 			draw_line(center, end, color, 6, true)
 			draw_circle(end, 11, color)
 			draw_string(ThemeDB.fallback_font, end - Vector2(4, -5), axis_name.to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("18232d"))
-		elif mode == "rotate":
+		elif draw_mode == "rotate":
 			var ring_radius: float = {"x": 66.0, "y": 82.0, "z": 98.0}[axis_name]
-			draw_polyline(projected_ring(axes[axis_name], ring_radius), color, 5, true)
+			draw_polyline(projected_ring(axes[axis_name], ring_radius, world), color, 5, true)
 		else:
 			draw_line(center, end, color, 4, true)
 			draw_circle(end, 14, color.darkened(0.1))
 			draw_circle(end, 7, Color("e8eff2"))
-	if mode == "scale":
+	if draw_mode == "scale":
 		draw_circle(center, 18, Color("f2c879"), false, 4)
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		var local_position: Vector2 = event.position - global_position
 		if event.pressed:
+			# Never grab while hidden: handles are only drawn in select mode.
+			if not is_visible_in_tree() or app.tool != "select" or app.liquify_active:
+				return
+			if cursor_active() and mode != "move":
+				return
 			handle = pick_handle(local_position)
 			if handle.is_empty():
 				return
@@ -130,29 +177,47 @@ func _input(event: InputEvent) -> void:
 			if was_dragging:
 				get_viewport().set_input_as_handled()
 	elif event is InputEventMouseMotion and dragging:
-		if app.liquify_active or app.selected_strokes.is_empty():
+		if app.liquify_active or (app.selected_strokes.is_empty() and guide_target() == null and not cursor_active()):
+			dragging = false
+			handle = ""
+			return
+		if cursor_active() and mode != "move":
 			dragging = false
 			handle = ""
 			return
 		var local_position: Vector2 = event.position - global_position
 		var delta: Vector2 = local_position - last_position
 		last_position = local_position
-		if not history_started:
+		var for_cursor := cursor_active()
+		if not history_started and not for_cursor:
 			app.checkpoint()
 			history_started = true
 		var center := gizmo_center()
+		var for_strokes: bool = not app.selected_strokes.is_empty()
 		if mode == "move":
 			var direction := axis_screen(axis_vector(handle), center)
 			var view_scale: float = app.view_height() / float(get_viewport_rect().size.y)
-			app.transform_group(axis_vector(handle) * delta.dot(direction) * view_scale, 0, 1, Vector3.ZERO, false, true)
+			var shift: Vector3 = axis_vector(handle) * delta.dot(direction) * view_scale
+			if for_strokes:
+				app.transform_group(shift, 0, 1, Vector3.ZERO, false, true)
+			elif not for_cursor:
+				app.transform_guide(shift, 0, 1, Vector3.ZERO, false)
+			else:
+				app.move_cursor(shift)
 		elif mode == "rotate":
 			var current_angle := (local_position - center).angle()
 			var angle_delta := rad_to_deg(angle_difference(rotate_last_angle, current_angle))
 			rotate_last_angle = current_angle
-			app.transform_group(Vector3.ZERO, angle_delta, 1, axis_vector(handle), false, true)
+			if for_strokes:
+				app.transform_group(Vector3.ZERO, angle_delta, 1, axis_vector(handle), false, true)
+			else:
+				app.transform_guide(Vector3.ZERO, angle_delta, 1, axis_vector(handle), false)
 		else:
 			var amount := 1.0 + (delta.x + delta.y) * 0.004
-			app.transform_group(Vector3.ZERO, 0, clampf(amount, 0.9, 1.1), Vector3.ZERO, false, true)
+			if for_strokes:
+				app.transform_group(Vector3.ZERO, 0, clampf(amount, 0.9, 1.1), Vector3.ZERO, false, true)
+			else:
+				app.transform_guide(Vector3.ZERO, 0, clampf(amount, 0.9, 1.1), Vector3.ZERO, false)
 		get_viewport().set_input_as_handled()
 
 func pick_handle(point: Vector2) -> String:

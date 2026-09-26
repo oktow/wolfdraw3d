@@ -20,7 +20,8 @@ func _init(app_node: Node3D) -> void:
 
 func begin(screen: Vector2, on_guide: bool) -> void:
 	cancel()
-	if mode == "off":
+	# Guide creation always arms the hold gesture; ink strokes obey the mode.
+	if mode == "off" and not on_guide:
 		return
 	drawing = true
 	guide_target = on_guide
@@ -75,10 +76,13 @@ func tick(delta: float) -> void:
 	idle += delta
 	if idle < HOLD_SECONDS:
 		return
-	if raw.size() < 3 and raw[0].distance_to(pointer) < 8:
+	if raw.size() < 3 and raw[0].distance_to(pointer) < 8 and not guide_target:
 		model = {"kind": "circle", "center": raw[0], "radii": Vector2(2,2), "angle": 0.0, "from_center": true}
 	else:
-		model = fit(raw, mode)
+		# A held guide creation auto-fits like ink: straight lines, curves,
+		# and near-closed loops each keep their natural shape.
+		var requested := "auto" if guide_target and mode == "off" else mode
+		model = fit(raw, requested)
 	if model.is_empty():
 		return
 	held_at = pointer
@@ -119,7 +123,8 @@ func apply_path(path: PackedVector2Array) -> bool:
 		if app.guides.creation_mode == "bend":
 			preview.configure_bend(app.guides.current(), world)
 		else:
-			preview.configure_profile(world, -app.guides.creation_frame.basis.z * app.guides.sweep_length)
+			var centered: bool = app.guides.creation_mode == "profile" or app.guides.creation_mode == "curve"
+			preview.configure_profile(world, -app.guides.creation_frame.basis.z * app.guides.sweep_length, centered)
 		preview.show()
 		app.guides.profile = world
 	else:
@@ -204,7 +209,7 @@ static func fit(points: PackedVector2Array, requested: String = "auto") -> Dicti
 			if i > 0:
 				winding += wrapf(local.angle() - previous_angle, -PI, PI)
 			previous_angle = local.angle()
-		var closed := start.distance_to(end) < maxf(15, radii.length() * 0.25)
+		var closed := start.distance_to(end) < maxf(15, radii.length() * 0.5)
 		if requested in ["circle", "ellipse"] or (requested == "auto" and closed and error / 64 < 0.18 and absf(winding) > 5):
 			var kind := "circle" if requested == "circle" or (requested == "auto" and maxf(radii.x, radii.y) / minf(radii.x, radii.y) < 1.5) else "ellipse"
 			if kind == "circle":

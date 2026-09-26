@@ -45,7 +45,8 @@ Kriteria: buat dua guide dari sudut berbeda, gambar di masing-masing, tutup/simp
 - [x] Bend awal dari garis kedua: sweep translasi dengan tepi oranye tetap; jalur bisa diganti berulang kali.
 - [ ] Bend lanjutan dengan rotasi penampang/deformasi bertumpuk.
 - [ ] Normal goresan dan penghalusan yang mengikuti permukaan melengkung.
-- [ ] Transformasi guide serta isolasi seleksi/penghapusan sesuai guide.
+- [x] Transformasi guide aktif (geser/putar/skala via gizmo viewport, tinta tidak ikut, undoable).
+- [ ] Isolasi seleksi/penghapusan sesuai guide.
 - [x] Uji bentuk melengkung/bersudut, ray dua sisi, tinta pada mesh, undo/redo, format v3, migrasi v1/v2, dan pembatalan multitouch.
 
 Penghalusan dunia dinonaktifkan untuk tinta pada guide custom agar sampelnya tetap di permukaan. Geometri tabung diperbaiki untuk arah goresan 3D. Penghalusan yang mengikuti permukaan dan optimasi ray pada mesh besar masih perlu dikerjakan.
@@ -55,7 +56,8 @@ Kriteria: goresan menempel pada guide melengkung; orbit tidak mengubah geometri.
 ## 3C. Loft dan Primitives
 
 - [ ] Seleksi kurva terurut untuk Loft dan pengaturan tension.
-- [ ] Cube, Pyramid, Sphere, Tube dengan segmen dan pratinjau.
+- [x] Cube klik-drag untuk ukuran, Tube sentuh-pusat + tarik radius (panjang ikut Bentangan profil), Line instan.
+- [ ] Pyramid, Sphere dengan segmen dan pratinjau.
 - [ ] Done/Cancel konsisten, resource lifecycle dan undo/redo.
 
 Kriteria: guide hasil Loft/Primitives dapat digambar, disimpan, dan diaktifkan kembali seperti guide lain.
@@ -63,6 +65,7 @@ Kriteria: guide hasil Loft/Primitives dapat digambar, disimpan, dan diaktifkan k
 ## 4. Android dan stylus
 
 - [x] Fondasi gestur: satu jari orbit atau gambar melalui toggle, dua jari pan dan pinch dengan pusat zoom mengikuti sentuhan; tersedia saat menu disembunyikan.
+- [x] Gestur ala Feather: double-tap satu jari snap tampak standar, tahan untuk pusat orbit/reset, double-tap tiga jari ganti proyeksi, geser vertikal tiga jari untuk FOV; diuji di PC.
 - [x] Uji event sentuh sintetis di Godot 4.7.2 Windows: transisi jumlah jari, pembatalan tinta, pan, zoom in/out, dan orbit.
 - [x] Konfigurasi Android SDK/JDK dan export template Godot 4.7.2; APK debug ARM 32/64-bit dengan signature terverifikasi.
 - [ ] UI adaptif landscape untuk tablet dan layar kecil.
@@ -78,8 +81,20 @@ Kriteria: APK berjalan di perangkat sasaran, input tidak saling mengganggu, dan 
 
 - [x] Draw Shape awal: garis, kurva, lingkaran/elips, hold-adjust, koreksi profil guide/Bend, undo dan simpan; diuji di PC.
 - [x] Mirror assistance on global X/Y/Z axes.
-- [ ] Sampel adaptif, pembaruan mesh bertahap, dan pengurangan draw call.
+- [x] Pembaruan mesh bertahap saat menggambar (throttle rebuild), culling AABB untuk ray guide, prune bounds eraser, dirty flag tanpa encode per tick, gizmo satu pass.
+- [ ] Sampel adaptif, pengurangan draw call, dan benchmark Android fisik.
 - [ ] Benchmark gambar besar serta pengaturan kualitas.
 - [ ] Ekspor geometri ke format pertukaran 3D.
 
 Kriteria performa dan format ekspor ditentukan berdasarkan hasil uji perangkat dan kebutuhan pengguna.
+
+## 6. Lingkungan (Environment)
+
+- [x] Overlay sumbu global dan toggle grid lantai.
+- [x] Warna background, gambar latar semat, dan fog mengikuti warna.
+- [x] Arah/warna/kuat directional light, sejajarkan tampilan, bayangan tanah.
+- [x] Glow, grain, dan pixelasi untuk presentasi.
+- [x] Format proyek v6 + migrasi v1–v5; environment ikut Undo dan autosave.
+- [ ] Toon shading, eyedropper background, DOF/fokus lanjutan, environment per shot sequence.
+
+Kriteria: pengaturan terlihat langsung, tersimpan saat simpan proyek, dan pulih saat undo/buka file. Diuji di PC; rasa slider dan biaya glow/grain pada Android perlu diuji perangkat.

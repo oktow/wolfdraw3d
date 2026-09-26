@@ -2,9 +2,17 @@ extends RefCounted
 ## Versioned, data-only project files. Validate fully before touching the scene.
 
 const FORMAT := "wolfdraw3d"
-const VERSION := 5
+const VERSION := 7
 const MAX_POINTS := 200000
 const MAX_BYTES := 32 * 1024 * 1024
+const MAX_BG_IMAGE_CHARS := 5600000
+
+static func default_environment() -> Dictionary:
+	return {"axis": false, "grid": true, "fog": false, "shadow": false,
+		"glow": false, "grain": false, "pixel": false,
+		"bg_color": [1.0, 1.0, 1.0], "bg_image": "",
+		"light_alt": 35.0, "light_az": -25.0, "light_color": [1.0, 1.0, 1.0],
+		"light_energy": 1.0, "glow_amount": 0.8, "grain_amount": 0.3, "pixel_scale": 1.0}
 
 static func encode(data: Dictionary) -> String:
 	return JSON.stringify(data, "", true, true)
@@ -16,7 +24,7 @@ static func valid_vector(value: Variant) -> bool:
 	return value is Array and value.size() == 3 and valid_number(value[0]) and valid_number(value[1]) and valid_number(value[2])
 
 static func validate(data: Variant) -> String:
-	if not data is Dictionary or data.get("format") != FORMAT or (data.get("version") != 1 and data.get("version") != 2 and data.get("version") != 3 and data.get("version") != 4 and data.get("version") != VERSION):
+	if not data is Dictionary or data.get("format") != FORMAT or (data.get("version") != 1 and data.get("version") != 2 and data.get("version") != 3 and data.get("version") != 4 and data.get("version") != 5 and data.get("version") != 6 and data.get("version") != VERSION):
 		return "Format atau versi proyek tidak didukung."
 	var groups: Variant = data.get("groups")
 	var strokes: Variant = data.get("strokes")
@@ -61,8 +69,10 @@ static func validate(data: Variant) -> String:
 			if not valid_number(channel, 1) or channel < 0:
 				return "Nilai warna tidak valid."
 		if stroke.has("brush"):
-			if stroke.brush not in ["pen", "pencil", "brush"]:
+			if stroke.brush not in ["pen", "pencil", "brush", "marker", "flat"]:
 				return "Jenis brush tidak valid."
+			if stroke.brush == "marker" and not valid_number(stroke.get("nib")):
+				return "Sudut nib tidak valid."
 			if not valid_number(stroke.get("opacity"), 1) or stroke.opacity < 0 or not valid_number(stroke.get("taper"), 0.5) or stroke.taper < 0:
 				return "Opacity/taper brush tidak valid."
 			if not stroke.get("normals") is Array or stroke.normals.size() != points.size() or not stroke.get("uv") is Array or stroke.uv.size() != points.size():
@@ -85,7 +95,42 @@ static func validate(data: Variant) -> String:
 		if not guide_issue.is_empty():
 			return guide_issue
 	if data.version >= 5:
-		return validate_sequence(data)
+		var sequence_issue := validate_sequence(data)
+		if not sequence_issue.is_empty():
+			return sequence_issue
+	if data.version >= 6:
+		return validate_environment(data)
+	return ""
+
+static func valid_color(value: Variant) -> bool:
+	return value is Array and value.size() == 3 and valid_number(value[0], 1) and valid_number(value[1], 1) and valid_number(value[2], 1) and value[0] >= 0 and value[1] >= 0 and value[2] >= 0
+
+static func validate_environment(data: Dictionary) -> String:
+	var env: Variant = data.get("environment")
+	if not env is Dictionary:
+		return "Data environment tidak valid."
+	for key in ["axis", "grid", "fog", "shadow", "glow", "grain", "pixel"]:
+		if not env.get(key) is bool:
+			return "Toggle environment tidak valid."
+	if not valid_color(env.get("bg_color")) or not valid_color(env.get("light_color")):
+		return "Warna environment tidak valid."
+	var image: Variant = env.get("bg_image")
+	if not image is String or image.length() > MAX_BG_IMAGE_CHARS:
+		return "Gambar latar environment tidak valid."
+	if not image.is_empty() and Marshalls.base64_to_raw(image).is_empty():
+		return "Gambar latar environment tidak valid."
+	if not valid_number(env.get("light_alt"), 90) or env.light_alt < -90 or env.light_alt > 90:
+		return "Arah cahaya tidak valid."
+	if not valid_number(env.get("light_az"), 360) or env.light_az < -360 or env.light_az > 360:
+		return "Arah cahaya tidak valid."
+	if not valid_number(env.get("light_energy"), 4) or env.light_energy < 0:
+		return "Kekuatan cahaya tidak valid."
+	if not valid_number(env.get("glow_amount"), 2) or env.glow_amount < 0:
+		return "Kekuatan glow tidak valid."
+	if not valid_number(env.get("grain_amount"), 1) or env.grain_amount < 0:
+		return "Kekuatan grain tidak valid."
+	if not valid_number(env.get("pixel_scale"), 1) or env.pixel_scale < 0.25 or env.pixel_scale > 1:
+		return "Skala pixel tidak valid."
 	return ""
 
 static func validate_sequence(data: Dictionary) -> String:
@@ -244,6 +289,8 @@ static func read_one(path: String) -> Dictionary:
 		json.data.active_guide = -1
 	if not json.data.has("sequence"):
 		json.data.sequence = []
+	if not json.data.has("environment"):
+		json.data.environment = default_environment()
 	json.data.version = VERSION
 	json.data.active_guide = int(json.data.active_guide)
 	for surface in json.data.guides:

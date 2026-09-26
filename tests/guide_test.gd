@@ -2,6 +2,7 @@ extends RefCounted
 
 const Store = preload("res://scripts/project_store.gd")
 const Previous = preload("res://tests/stage2_test.gd")
+const Surface = preload("res://scripts/guide_surface.gd")
 
 func reset(app: Node) -> void:
 	app.restore_document({"format": Store.FORMAT, "version": 2,
@@ -194,6 +195,94 @@ func run(app: Node) -> void:
 	assert(app.guides.surfaces.size() == 1 and app.strokes.size() == expected.strokes.size())
 	app.undo()
 	assert(helper.equivalent(app.document(), expected))
+	# Guide transform on the active guide; ink is left in place.
+	var pre_transform: Dictionary = app.document()
+	app.set_tool("draw")
+	app.target = Vector3.ZERO
+	app.distance = 12
+	app.yaw = 0
+	app.pitch = 0
+	app.update_camera()
+	# Checkpoints below: setup-save?, plane, draw, move, rotate, scale,
+	# mid-save, cube, cube-move. Rejected scales checkpoint nothing.
+	# Move/rotate/scale/cube-move/cube undos are inline; the loop below
+	# removes setup-save?, plane, draw, and mid-save.
+	var cleanups := 3
+	if app.guides.current() != null:
+		app.guides.save_active()
+		cleanups += 1
+	app.guides.quick_plane()
+	assert(app.guides.current() != null)
+	helper.draw(app, center - Vector2(60, 0), center + Vector2(60, 0))
+	assert(app.strokes.size() == pre_transform.strokes.size() + 1)
+	var plane_before: PackedVector3Array = app.guides.current().corners.duplicate()
+	var ink_before: PackedVector3Array = app.strokes[-1].points.duplicate()
+	var width_before: float = plane_before[1].distance_to(plane_before[0])
+	app.transform_guide(Vector3(1, 0, 0))
+	for i in 4:
+		assert(app.guides.current().corners[i].is_equal_approx(plane_before[i] + Vector3(1, 0, 0)))
+	assert(app.strokes[-1].points == ink_before)
+	app.undo()
+	assert(app.guides.current().corners == plane_before)
+	var normal: Vector3 = app.guides.current().surface_normal()
+	app.transform_guide(Vector3.ZERO, 90.0, 1.0, normal)
+	assert(is_equal_approx(app.guides.current().corners[1].distance_to(app.guides.current().corners[0]), width_before))
+	assert(app.strokes[-1].points == ink_before)
+	app.undo()
+	assert(app.guides.current().corners == plane_before)
+	app.transform_guide(Vector3.ZERO, 0.0, 2.0)
+	assert(is_equal_approx(app.guides.current().corners[1].distance_to(app.guides.current().corners[0]), width_before * 2.0))
+	app.undo()
+	assert(app.guides.current().corners == plane_before)
+	var history_before_reject: int = app.history.size()
+	app.transform_guide(Vector3.ZERO, 0.0, 0.00001)
+	assert(app.guides.current().corners == plane_before)
+	assert(app.history.size() == history_before_reject)
+	app.transform_guide(Vector3.ZERO, 90.0, 1.0, Vector3.RIGHT)
+	assert(absf(app.guides.current().surface_normal().y) > 0.99)
+	assert(app.strokes[-1].points == ink_before)
+	app.undo()
+	assert(app.guides.current().corners == plane_before)
+	assert(app.rail_rotate_menu.item_count == 3)
+	app.rail_rotate_menu.id_pressed.emit(1)
+	assert(absf(app.guides.current().surface_normal().x) > 0.99)
+	app.undo()
+	assert(app.guides.current().corners == plane_before)
+	# Viewport gizmo prefers ink, falls back to the active guide.
+	app.clear_selection()
+	assert(app.transform_joystick.selected_points() == plane_before)
+	app.choose_stroke(app.strokes[-1])
+	assert(app.transform_joystick.selected_points() == app.strokes[-1].points)
+	app.clear_selection()
+	assert(app.transform_joystick.selected_points() == plane_before)
+	# Mesh guides move through the same path.
+	app.guides.save_active()
+	app.guides.create_cube()
+	var cube_before: PackedVector3Array = app.guides.current().vertices.duplicate()
+	app.transform_guide(Vector3(0, 2, 0))
+	for i in cube_before.size():
+		assert(app.guides.current().vertices[i].is_equal_approx(cube_before[i] + Vector3(0, 2, 0)))
+	app.undo()
+	app.undo()
+	for i in cleanups:
+		app.undo()
+	assert(app.document() == pre_transform)
+	# Dense meshes use the spatial index; hits match the surface.
+	var dense := Surface.new()
+	var dense_verts := PackedVector3Array()
+	for dense_row in 40:
+		for dense_col in 60:
+			dense_verts.append(Vector3(dense_col * 0.1, dense_row * 0.1, sin(dense_col * 0.4) * 0.3 + cos(dense_row * 0.3) * 0.2))
+	dense.kind = "mesh"
+	dense.columns = 60
+	dense.rows = 40
+	dense.vertices = dense_verts
+	dense.rebuild()
+	assert(not dense.grid_cells.is_empty())
+	var aimed: Variant = dense.intersect_ray(Vector3(3, 2, 5), Vector3(0, 0, -1))
+	assert(aimed != null and absf(aimed.z) < 0.6)
+	assert(dense.intersect_ray(Vector3(50, 50, 5), Vector3(0, 0, -1)) == null)
+	dense.free()
 	assert(preload("res://tests/touch_test.gd").new().run(app))
 	assert(preload("res://tests/view_test.gd").new().run(app))
 	assert(await preload("res://tests/profile_test.gd").new().run(app, temp))
@@ -201,11 +290,12 @@ func run(app: Node) -> void:
 	assert(await preload("res://tests/eraser_test.gd").new().run(app, temp))
 	assert(await preload("res://tests/ink_test.gd").new().run(app, temp))
 	assert(await preload("res://tests/shape_test.gd").new().run(app, temp))
+	assert(preload("res://tests/env_test.gd").new().run(app))
 	app.yaw = 0.65
 	app.pitch = 0.3
 	app.distance = 13
 	app.update_camera()
-	print("GUIDE 3A PASS: explicit creation, mesh bounds, backface ink, stable orbit, lifecycle, opacity, history, resources, v2 round-trip, v1 migration, autosave, gesture cancellation")
+	print("GUIDE 3A PASS: explicit creation, mesh bounds, backface ink, stable orbit, lifecycle, opacity, history, resources, v2 round-trip, v1 migration, autosave, gesture cancellation, guide transform")
 	if "--capture" in OS.get_cmdline_user_args():
 		await RenderingServer.frame_post_draw
 		app.get_viewport().get_texture().get_image().save_png("res://build/guide-3a.png")

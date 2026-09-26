@@ -26,6 +26,27 @@ func run(app: Node3D) -> bool:
 	assert(app.view_controls.is_visible_in_tree())
 	app.view_menu.get_popup().id_pressed.emit(1)
 	assert(app.camera.basis.z.is_equal_approx(Vector3.UP))
+	assert(app.APP_VERSION == "0.2.7")
+	# 3D cursor gizmo tracks the cursor through every navigation op.
+	app.target = Vector3(1.2, -0.6, 0.8)
+	app.cursor_pos = Vector3(1.2, -0.6, 0.8)
+	app.distance = 9.0
+	app.update_camera()
+	assert(app.cursor_gizmo.visible)
+	assert(app.cursor_gizmo.mesh.get_surface_count() == 1)
+	app.pan(Vector2(30, -12))
+	assert(app.cursor_gizmo.mesh.get_aabb().get_center().is_equal_approx(app.cursor_pos))
+	app.orbit(Vector2(45, 20))
+	assert(app.cursor_gizmo.mesh.get_aabb().get_center().is_equal_approx(app.cursor_pos))
+	app.reset_view()
+	app.cursor_pos = Vector3.ZERO
+	app.update_camera()
+	assert(app.cursor_gizmo.mesh.get_aabb().get_center().is_equal_approx(Vector3.ZERO))
+	app.update_status()
+	assert("Kursor 3D: (0.00, 0.00, 0.00)" in app.status.text or "3D cursor: (0.00, 0.00, 0.00)" in app.status.text)
+	app.guides.depth_slider.value = 1.5
+	assert("+1.50" in app.guides.depth_label.text)
+	app.guides.depth_slider.value = 0.0
 	app.toggle_menu()
 	assert(app.document() == before)
 	app.target = original_target
@@ -33,5 +54,5 @@ func run(app: Node3D) -> bool:
 	app.yaw = original_yaw
 	app.pitch = original_pitch
 	app.update_camera()
-	print("VIEW PASS: six axis dropdown actions, exact poles, retained target/distance, navigation after snap, hidden menus, unchanged document")
+	print("VIEW PASS: six axis dropdown actions, exact poles, retained target/distance, navigation after snap, hidden menus, unchanged document, 3D cursor tracking, depth echo")
 	return true

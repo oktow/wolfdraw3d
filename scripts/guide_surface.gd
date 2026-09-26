@@ -12,14 +12,26 @@ var columns := 2
 var rows := 2
 var index_cache := PackedInt32Array()
 var hit_normal := Vector3.BACK
+var bounds := AABB()
+# Uniform-grid spatial index for dense meshes (built in rebuild, used by
+# intersect_ray). Small meshes keep the plain linear scan.
+const GRID_TRI_THRESHOLD := 1500
+var grid_cells := {}
+var grid_origin := Vector3.ZERO
+var grid_step := Vector3.ONE
+var grid_dims := Vector3i.ONE
 
-func configure_profile(profile: PackedVector3Array, depth: Vector3) -> void:
+func configure_profile(profile: PackedVector3Array, depth: Vector3, centered := false) -> void:
 	kind = "mesh"
 	columns = profile.size()
 	rows = 2
-	vertices = profile.duplicate()
+	# Centered: the drawn line sits mid-surface (cursor = median).
+	var shift := -depth / 2.0 if centered else Vector3.ZERO
+	vertices.clear()
 	for point in profile:
-		vertices.append(point + depth)
+		vertices.append(point + shift)
+	for point in profile:
+		vertices.append(point + shift + depth)
 	rebuild()
 
 func configure_loft(profiles: Array[PackedVector3Array], tension: float = 0.5) -> void:
@@ -70,6 +82,65 @@ func edge_points() -> PackedVector3Array:
 		return PackedVector3Array([corners[0], corners[1]])
 	return vertices.slice(0, columns)
 
+func configure_cube(center: Vector3, basis: Basis, edge: float) -> void:
+	# Camera-facing box stored as a 5x4 grid: cap fans use repeated apex
+	# vertices (degenerate half-quads) so existing grid triangulation,
+	# validation, and save/load keep working unchanged.
+	kind = "mesh"
+	columns = 5
+	rows = 4
+	var h := edge / 2.0
+	var x: Vector3 = basis.x.normalized() * h
+	var y: Vector3 = basis.y.normalized() * h
+	var z: Vector3 = basis.z.normalized() * h
+	var front := center + z
+	var back := center - z
+	var t := [front - x - y, front + x - y, front + x + y, front - x + y]
+	var b := [back - x - y, back + x - y, back + x + y, back - x + y]
+	vertices.clear()
+	for i in 5:
+		vertices.append(front)
+	for point in t:
+		vertices.append(point)
+	vertices.append(t[0])
+	for point in b:
+		vertices.append(point)
+	vertices.append(b[0])
+	for i in 5:
+		vertices.append(back)
+	rebuild()
+
+func configure_tube(center: Vector3, axis: Vector3, radius: float, length: float, radial_segments: int = 12, length_segments: int = 8) -> void:
+	# Closed cylinder with a duplicated seam column so the grid wraps around.
+	kind = "mesh"
+	var w: Vector3 = axis.normalized()
+	var up := Vector3.UP
+	if absf(w.dot(up)) > 0.95:
+		up = Vector3.RIGHT
+	var u: Vector3 = w.cross(up).normalized()
+	var v: Vector3 = w.cross(u).normalized()
+	columns = clampi(radial_segments + 1, 3, 256)
+	rows = clampi(length_segments + 1, 2, 64)
+	vertices.clear()
+	for row in rows:
+		var along: Vector3 = center - w * (length / 2.0) + w * (length * float(row) / float(rows - 1))
+		for col in columns:
+			var angle := TAU * float(col) / float(columns - 1)
+			vertices.append(along + (u * cos(angle) + v * sin(angle)) * radius)
+	rebuild()
+
+func configure_line(center: Vector3, basis: Basis, length: float, width: float) -> void:
+	# Thin camera-facing strip (ruler edge) that stays drawable.
+	kind = "mesh"
+	columns = 2
+	rows = 2
+	var x: Vector3 = basis.x.normalized() * (length / 2.0)
+	var y: Vector3 = basis.y.normalized() * (width / 2.0)
+	vertices = PackedVector3Array([
+		center - x - y, center + x - y,
+		center - x + y, center + x + y])
+	rebuild()
+
 func configure_bend(source: MeshInstance3D, path: PackedVector3Array) -> void:
 	# Sweep the starting edge along the drawn path; keep that edge fixed.
 	var edge: PackedVector3Array = source.edge_points()
@@ -80,6 +151,15 @@ func configure_bend(source: MeshInstance3D, path: PackedVector3Array) -> void:
 	for point in path:
 		for start in edge:
 			vertices.append(start + (point - path[0]))
+	rebuild()
+
+func apply_transform(center: Vector3, rotation: Basis, factor: float, offset: Vector3) -> void:
+	if kind == "plane":
+		for i in corners.size():
+			corners[i] = center + rotation * ((corners[i] - center) * factor) + offset
+	else:
+		for i in vertices.size():
+			vertices[i] = center + rotation * ((vertices[i] - center) * factor) + offset
 	rebuild()
 
 func triangle_indices() -> PackedInt32Array:
@@ -132,18 +212,157 @@ func center() -> Vector3:
 		return sum / maxi(1, vertices.size())
 	return (corners[0] + corners[1] + corners[2] + corners[3]) / 4
 
+func ray_hits_bounds(origin: Vector3, direction: Vector3) -> bool:
+	if not bounds.has_volume():
+		return true
+	if bounds.has_point(origin):
+		return true
+	var tmin := 0.0
+	var tmax := INF
+	for axis in 3:
+		var o := origin[axis]
+		var d := direction[axis]
+		var lo := bounds.position[axis]
+		var hi := lo + bounds.size[axis]
+		if absf(d) < 0.0000001:
+			if o < lo or o > hi:
+				return false
+		else:
+			var t1 := (lo - o) / d
+			var t2 := (hi - o) / d
+			tmin = maxf(tmin, minf(t1, t2))
+			tmax = minf(tmax, maxf(t1, t2))
+			if tmin > tmax:
+				return false
+	return true
+
+func build_spatial_index() -> void:
+	grid_cells.clear()
+	if kind != "mesh":
+		return
+	var tri_count := index_cache.size() / 3
+	if tri_count <= GRID_TRI_THRESHOLD:
+		return
+	var size := bounds.size
+	var longest := maxf(size.x, maxf(size.y, size.z))
+	if longest < 0.0001:
+		return
+	var cell := longest / 16.0
+	grid_step = Vector3(cell, cell, cell)
+	grid_origin = bounds.position
+	grid_dims = Vector3i(maxi(1, int(size.x / cell) + 1), maxi(1, int(size.y / cell) + 1), maxi(1, int(size.z / cell) + 1))
+	for base in range(0, index_cache.size(), 3):
+		var tri_min := vertices[index_cache[base]]
+		var tri_max := tri_min
+		for k in [1, 2]:
+			var vertex: Vector3 = vertices[index_cache[base + k]]
+			tri_min = tri_min.min(vertex)
+			tri_max = tri_max.max(vertex)
+		var cell_min := cell_of(tri_min)
+		var cell_max := cell_of(tri_max)
+		for x in range(cell_min.x, cell_max.x + 1):
+			for y in range(cell_min.y, cell_max.y + 1):
+				for z in range(cell_min.z, cell_max.z + 1):
+					var key := Vector3i(x, y, z)
+					if grid_cells.has(key):
+						grid_cells[key].append(base)
+					else:
+						grid_cells[key] = PackedInt32Array([base])
+
+func cell_of(point: Vector3) -> Vector3i:
+	return Vector3i(clampi(int(floor((point.x - grid_origin.x) / grid_step.x)), 0, grid_dims.x - 1), clampi(int(floor((point.y - grid_origin.y) / grid_step.y)), 0, grid_dims.y - 1), clampi(int(floor((point.z - grid_origin.z) / grid_step.z)), 0, grid_dims.z - 1))
+
+func slab_interval(origin: Vector3, direction: Vector3) -> Vector2:
+	# Entry/exit distances of the ray through bounds, or (-1, -1) on a miss.
+	var tmin := 0.0
+	var tmax := INF
+	for axis in 3:
+		var o := origin[axis]
+		var d := direction[axis]
+		var lo := bounds.position[axis]
+		var hi := lo + bounds.size[axis]
+		if absf(d) < 0.0000001:
+			if o < lo or o > hi:
+				return Vector2(-1, -1)
+		else:
+			var t1 := (lo - o) / d
+			var t2 := (hi - o) / d
+			tmin = maxf(tmin, minf(t1, t2))
+			tmax = minf(tmax, maxf(t1, t2))
+			if tmin > tmax:
+				return Vector2(-1, -1)
+	return Vector2(tmin, tmax)
+
+func intersect_ray_grid(origin: Vector3, direction: Vector3) -> Variant:
+	# Ordered voxel walk (Amanatides-Woo): cells nearest the ray origin are
+	# tested first, and the walk stops once cells lie beyond the best hit.
+	var interval := slab_interval(origin, direction)
+	if interval.x < 0.0:
+		return null
+	var point: Vector3 = origin + direction * interval.x
+	var cell := cell_of(point)
+	var step := Vector3i(1 if direction.x > 0 else -1, 1 if direction.y > 0 else -1, 1 if direction.z > 0 else -1)
+	var boundary := Vector3(
+		grid_origin.x + (float(cell.x + (1 if step.x > 0 else 0))) * grid_step.x,
+		grid_origin.y + (float(cell.y + (1 if step.y > 0 else 0))) * grid_step.y,
+		grid_origin.z + (float(cell.z + (1 if step.z > 0 else 0))) * grid_step.z)
+	var advance := Vector3(INF, INF, INF)
+	var delta := Vector3(INF, INF, INF)
+	for axis in 3:
+		var d := direction[axis]
+		if absf(d) > 0.0000001:
+			advance[axis] = (boundary[axis] - point[axis]) / d
+			delta[axis] = absf(grid_step[axis] / d)
+	var closest: Variant = null
+	var best := INF
+	var dir_scale := direction.length_squared()
+	var guard := 0
+	while guard < 4096:
+		guard += 1
+		if grid_cells.has(cell):
+			for base in grid_cells[cell]:
+				var b := int(base)
+				var candidate: Variant = Geometry3D.ray_intersects_triangle(origin, direction, vertices[index_cache[b]], vertices[index_cache[b + 1]], vertices[index_cache[b + 2]])
+				if candidate != null:
+					var dist := origin.distance_squared_to(candidate)
+					if dist < best:
+						closest = candidate
+						best = dist
+						hit_normal = (vertices[index_cache[b + 1]] - vertices[index_cache[b]]).cross(vertices[index_cache[b + 2]] - vertices[index_cache[b]]).normalized()
+		var next := minf(advance.x, minf(advance.y, advance.z))
+		if next > interval.y or (best < INF and next * next * dir_scale > best):
+			break
+		if advance.x <= advance.y and advance.x <= advance.z:
+			cell.x += step.x
+			advance.x += delta.x
+		elif advance.y <= advance.z:
+			cell.y += step.y
+			advance.y += delta.y
+		else:
+			cell.z += step.z
+			advance.z += delta.z
+		if cell.x < 0 or cell.y < 0 or cell.z < 0 or cell.x >= grid_dims.x or cell.y >= grid_dims.y or cell.z >= grid_dims.z:
+			break
+	return closest
+
 func intersect_ray(origin: Vector3, direction: Vector3) -> Variant:
 	if kind == "mesh":
-		var indices := index_cache
-		var closest: Variant = null
-		var best := INF
-		for i in range(0, indices.size(), 3):
-			var candidate: Variant = Geometry3D.ray_intersects_triangle(origin, direction, vertices[indices[i]], vertices[indices[i + 1]], vertices[indices[i + 2]])
-			if candidate != null and origin.distance_squared_to(candidate) < best:
-				best = origin.distance_squared_to(candidate)
-				closest = candidate
-				hit_normal = (vertices[indices[i + 1]] - vertices[indices[i]]).cross(vertices[indices[i + 2]] - vertices[indices[i]]).normalized()
-		return closest
+		if grid_cells.is_empty():
+			if not ray_hits_bounds(origin, direction):
+				return null
+			var indices := index_cache
+			var closest: Variant = null
+			var best := INF
+			for i in range(0, indices.size(), 3):
+				var candidate: Variant = Geometry3D.ray_intersects_triangle(origin, direction, vertices[indices[i]], vertices[indices[i + 1]], vertices[indices[i + 2]])
+				if candidate != null:
+					var dist := origin.distance_squared_to(candidate)
+					if dist < best:
+						closest = candidate
+						best = dist
+						hit_normal = (vertices[indices[i + 1]] - vertices[indices[i]]).cross(vertices[indices[i + 2]] - vertices[indices[i]]).normalized()
+			return closest
+		return intersect_ray_grid(origin, direction)
 	# Query the actual triangles, including their back faces and finite bounds.
 	hit_normal = surface_normal()
 	if absf(surface_normal().dot(direction)) < 0.0001:
@@ -167,6 +386,8 @@ func rebuild() -> void:
 	var mesh_data := ArrayMesh.new()
 	mesh_data.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	mesh = mesh_data
+	bounds = mesh_data.get_aabb()
+	build_spatial_index()
 	var lines := ImmediateMesh.new()
 	var line_material := StandardMaterial3D.new()
 	line_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED

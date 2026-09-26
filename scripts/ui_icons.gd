@@ -7,6 +7,9 @@ const PATHS = {
 	"pencil": '<path d="m4 20 4-1 12-12-3-3L5 16Z M14 7l3 3 M4 20l1-4"/>',
 	"brush": '<path d="M5 19q-2-2 0-4l9-9 4 4-9 9q-2 2-4 0Z M14 6l2-2q2-2 4 0l1 1q2 2 0 4l-2 2"/>',
 	"tube": '<path d="M7 4h10v4H7z M8 8v9q0 4 4 4t4-4V8 M10 12h4"/>',
+	"marker": '<path d="M4 20 12 12 M11 3l8 8-5 5-8-8Z M11 3l3-1 6 6-1 3"/>',
+	"flat": '<path d="M3 21h18 M5 21V9h14v12 M5 13h14"/>',
+	"props": '<path d="M4 7h16 M4 12h16 M4 17h16"/><circle cx="15" cy="7" r="2.4"/><circle cx="9" cy="12" r="2.4"/><circle cx="17" cy="17" r="2.4"/>',
 	"lasso_fill": '<path d="M5 7q7-6 14 0t-7 8q-7 2-7-3t7-2q5 1 3 5 M8 18h8"/>',
 	"rectangle_fill": '<rect x="4" y="5" width="16" height="14" rx="1"/><path d="M4 9h16 M4 15h16 M9 5v14 M15 5v14"/>',
 	"radius": '<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2"/>',
@@ -40,6 +43,11 @@ const PATHS = {
 	"activate": '<path d="m3 8 7-5 11 4-7 6Z M3 8v11l11 2V13 M9 13l4 3-4 3Z"/>',
 	"reset": '<path d="M4 10a8 8 0 1 1 1 8 M4 4v6h6"/><circle cx="12" cy="12" r="2"/>',
 	"cube": '<path d="m12 2 9 5v10l-9 5-9-5V7Z M3 7l9 5 9-5 M12 12v10"/>',
+	"global_axis": '<path d="M3 12h18 M18 8l3 4-3 4" stroke="#f18cae"/><path d="M12 21V3 M8 6l4-4 4 4" stroke="#73e6bb"/><path d="M6 18l9-9 M13 9h4v4" stroke="#8eb9ff"/>',
+	"cursor3d": '<circle cx="12" cy="12" r="6"/><path d="M12 1v5 M12 18v5 M1 12h5 M18 12h5"/>',
+	"line": '<path d="M4 20 20 4"/><circle cx="4" cy="20" r="1.6"/><circle cx="20" cy="4" r="1.6"/>',
+	"polyline": '<circle cx="4" cy="18" r="1.6"/><circle cx="12" cy="8" r="1.6"/><circle cx="20" cy="14" r="1.6"/><path d="M5 17l6-8 8 5"/>',
+	"curve": '<path d="M3 18q6-12 9-6t9-6"/><circle cx="3" cy="18" r="1.4"/><circle cx="21" cy="6" r="1.4"/>',
 	"help": '<circle cx="12" cy="12" r="9"/><path d="M9 8a3 3 0 0 1 6 0c0 3-3 2-3 5 M12 17h.01"/>',
 	"taper": '<path d="m2 12 20-7v14Z"/>',
 	"smooth": '<path d="m2 16 4-8 4 8 4-8 4 8 4-8" opacity=".3"/><path d="M2 13q5-9 10 0t10 0"/>',
@@ -48,6 +56,9 @@ const PATHS = {
 	"scale_down": '<path d="M3 9h6V3 M21 15h-6v6 M9 9 3 3 M15 15l6 6"/>',
 	"scale_up": '<path d="M3 9V3h6 M21 15v6h-6 M3 3l6 6 M21 21l-6-6"/>',
 	"joystick": '<circle cx="12" cy="12" r="3"/><path d="M12 9V3 M9 12H3 M15 12h6 M12 15v6 M12 3l-2 3h4Z M3 12l3-2v4Z M21 12l-3-2v4Z M12 21l-2-3h4Z"/>',
+	"mode_move": '<path d="M12 2v20 M2 12h20 M9 5l3-3 3 3 M9 19l3 3 3-3 M5 9l-3 3 3 3 M19 9l3 3-3 3"/>',
+	"mode_rotate": '<path d="M20 12a8 8 0 1 1-2.3-5.6 M18 2v5h-5"/>',
+	"mode_scale": '<path d="M9 3H3v6 M15 3h6v6 M9 21H3v-6 M15 21h6v-6"/>',
 	"duplicate": '<rect x="7" y="7" width="12" height="12" rx="1"/><path d="M5 17H4V4h13v1 M12 10v6 M9 13h6"/>',
 	"mirror": '<path d="M12 3v18 M5 6l-3 3 3 3 M19 6l3 3-3 3 M5 15l-3 3 3 3 M19 15l3 3-3 3"/>',
 	"perspective": '<path d="M3 5h18v14H3Z M3 5l9 7 9-7 M3 19l9-7 9 7"/>',
@@ -83,6 +94,7 @@ const ACTIONS = {
 	"Aktifkan guide": ["activate", "Memakai guide tersimpan yang dipilih sebagai target gambar."],
 	"Tampil / sembunyi": ["eye", "Mengubah visibilitas guide tersimpan yang dipilih."],
 	"Hapus guide tersimpan": ["delete", "Menghapus guide tersimpan, tinta tetap ada."],
+	"Hapus guide aktif": ["delete", "Menghapus guide aktif, tinta tetap ada."],
 	"Reset kamera": ["reset", "Mengembalikan posisi, pusat, dan jarak kamera ke awal."],
 	"Tampak": ["cube", "Membuka pilihan tampak depan, belakang, atas, bawah, kanan, dan kiri."],
 	"Panduan ikon": ["help", "Membuka arti ikon dan panduan gestur."],
@@ -94,19 +106,42 @@ const ACTIONS = {
 	"Skala +": ["scale_up", "Memperbesar grup aktif."],
 	"Joystick transformasi": ["joystick", "Menampilkan atau menyembunyikan joystick transformasi grup."],
 	"Duplikat": ["duplicate", "Menyalin goresan terpilih sebagai goresan baru."],
-	"Mirror": ["mirror", "Mencerminkan sapuan baru pada sumbu X, Y, atau Z."]
+	"Mirror": ["mirror", "Mencerminkan sapuan baru pada sumbu X, Y, atau Z melalui kursor 3D."]
 	,"Radius": ["radius", "Mengatur radius brush untuk sapuan baru."]
 	,"Opacity brush": ["opacity", "Mengatur opacity brush untuk sapuan baru."]
 	,"Draw Shape": ["draw_shape", "Memilih mode Draw Shape untuk merapikan garis, lingkaran, elips, atau kurva."]
 	,"Loft": ["loft", "Menghubungkan minimal dua stroke terpilih menjadi guide surface baru."]
+	,"Cube": ["cube", "Membuat guide kotak menghadap kamera."]
+	,"Tube": ["tube", "Membuat guide tabung menjauhi kamera."]
+	,"Line": ["line", "Membuat guide strip tipis sebagai penggaris."]
+	,"Spidol datar": ["marker", "Pena mata pipih; lebar goresan mengikuti arah tarikan terhadap sudut nib."]
+	,"Pena pipih": ["flat", "Ribbon datar solid; lebar konstan dan opak penuh."]
+	,"Properti": ["props", "Warna, opacity, dan radius brush dalam satu popup."]
+	,"Buat guide": ["add", "Membuka pilihan tipe guide baru."]
+	,"Poligonal: klik titik": ["polyline", "Klik titik-titik sudut guide satu per satu."]
+	,"Kurva bebas": ["curve", "Gambar garis bebas yang dihaluskan otomatis."]
+	,"Pilih grup aktif": ["add", "Memilih seluruh goresan terlihat pada grup aktif."]
+	,"Pilih semua": ["eye", "Memilih seluruh goresan terlihat dari semua grup."]
+	,"Kosongkan pilihan": ["cancel", "Mengosongkan seleksi tanpa menghapus."]
+	,"Mirror seleksi": ["mirror", "Mencerminkan seleksi di tempat terhadap bidang kursor 3D."]
+	,"Geser": ["mode_move", "Gizmo geser sepanjang sumbu."]
+	,"Putar": ["mode_rotate", "Gizmo putar mengelilingi sumbu."]
+	,"Skala": ["mode_scale", "Gizmo skala seragam dari pusat."]
+	,"Radius eraser": ["radius", "Mengatur radius lingkaran eraser."]
+	,"Sumbu global": ["global_axis", "Menampilkan atau menyembunyikan sumbu global XYZ."]
+	,"Kursor 3D": ["cursor3d", "Menaruh kursor 3D sebagai acuan lahir guide; ketuk atau seret kanvas."]
+	,"Joystick 2D": ["joystick", "Pad geser/putar/skala pada bidang pandang untuk seleksi."]
+	,"Transformasi guide": ["joystick", "Beralih ke gizmo viewport untuk menggeser, memutar, atau menskala guide aktif. Tinta tetap di tempat."]
+	,"Putar 90°": ["mode_rotate", "Putar guide aktif 90 derajat; pilih sumbu dunia."]
 }
 
 static func normalized(title: String) -> String:
 	return title.strip_edges().replace("  ", " ")
 
-static func texture(key: String) -> Texture2D:
-	if cache.has(key):
-		return cache[key]
+static func texture(key: String, pixel_scale := 2.0) -> Texture2D:
+	var cache_key := key + "@" + str(pixel_scale)
+	if cache.has(cache_key):
+		return cache[cache_key]
 	var paths: String = PATHS.get(key, PATHS.help)
 	if key.begins_with("axis_"):
 		var letter := key.substr(5, 1)
@@ -117,9 +152,9 @@ static func texture(key: String) -> Texture2D:
 		paths += '"/>'
 	var svg := '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><g fill="none" stroke="#e8eff2" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' + paths + '</g></svg>'
 	var image := Image.new()
-	image.load_svg_from_string(svg, 2.0)
-	cache[key] = ImageTexture.create_from_image(image)
-	return cache[key]
+	image.load_svg_from_string(svg, pixel_scale)
+	cache[cache_key] = ImageTexture.create_from_image(image)
+	return cache[cache_key]
 
 static func apply(button: Button, title: String) -> void:
 	var name := normalized(title)

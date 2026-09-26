@@ -18,6 +18,12 @@ func run(app: Node3D, temp: String) -> bool:
 			var angle := TAU * i / 64
 			loop.append((Vector2(cos(angle) * 100, sin(angle) * 100 * ratio) * (1 + 0.02 * sin(i))).rotated(0.6))
 		assert(Shape.fit(loop).kind == ("circle" if ratio == 1 else "ellipse"))
+	# Nearly closed wobbly loops still snap to a perfect circle on hold.
+	var open_loop := PackedVector2Array()
+	for i in 60:
+		var angle := TAU * i / 64
+		open_loop.append(Vector2(cos(angle), sin(angle)) * (100 + 8 * sin(i * 1.7)))
+	assert(Shape.fit(open_loop).kind == "circle")
 	for projection in [0,1]:
 		app.restore_document({"format": Store.FORMAT, "version": Store.VERSION, "groups": [{"id":0,"name":"Shape","visible":true}], "active_group":0,"strokes":[],"guides":[],"active_guide":-1})
 		app.target = Vector3.ZERO

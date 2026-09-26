@@ -12,12 +12,18 @@ var taper := 0.15
 var sample_normals := PackedVector3Array()
 var path_uv := PackedFloat32Array()
 var uv_length := 0.0
+var nib_angle := deg_to_rad(45.0)
+const NIB_THIN := 0.15
+var bounds := AABB()
+var defer_rebuild := false
+var last_rebuild_msec := -100000
 
 func copy_brush(source: MeshInstance3D, samples: PackedFloat32Array) -> void:
 	brush_kind = source.brush_kind
 	opacity = source.opacity
 	taper = source.taper
 	uv_length = source.uv_length
+	nib_angle = source.nib_angle
 	if brush_kind == "tube":
 		return
 	for sample in samples:
@@ -42,7 +48,17 @@ func rebuild_ink() -> void:
 			side = -side
 		previous_side = side
 		var fraction := path_uv[i] / maxf(uv_length, 0.0001)
-		var width := 1.0 if taper <= 0 else clampf(minf(fraction, 1.0 - fraction) / taper, 0.08, 1.0)
+		var width := 1.0 if taper <= 0 or brush_kind == "flat" else clampf(minf(fraction, 1.0 - fraction) / taper, 0.08, 1.0)
+		if brush_kind == "marker":
+			# Flat calligraphy nib: full width when moving across the nib
+			# edge, thin when moving along it. Nib lives in the guide plane
+			# so orbiting never changes the baked shape.
+			var up_ref := Vector3.UP if absf(plane_normal.y) < 0.9 else Vector3.RIGHT
+			var bx := plane_normal.cross(up_ref).normalized()
+			var by := bx.cross(plane_normal).normalized()
+			var nib := bx * cos(nib_angle) + by * sin(nib_angle)
+			var across: float = tangent.cross(nib).length()
+			width *= NIB_THIN + (1.0 - NIB_THIN) * clampf(across, 0.0, 1.0)
 		# Local guide normals orient the strip; a tiny lift avoids coplanar flicker.
 		var center := points[i] + normal * 0.001
 		verts.append(center - side * radius * width)
@@ -127,6 +143,14 @@ func smooth_points() -> void:
 	points = result
 	rebuild()
 
+func apply_ink(rgb: Color) -> void:
+	ink = Color(rgb.r, rgb.g, rgb.b, ink.a)
+	if material_override is ShaderMaterial:
+		material_override.set_shader_parameter("ink_color", ink)
+	elif material_override is StandardMaterial3D:
+		var fixed: Color = material_override.albedo_color
+		material_override.albedo_color = Color(rgb.r, rgb.g, rgb.b, fixed.a)
+
 func set_selected(selected: bool) -> void:
 	if material_override is ShaderMaterial:
 		material_override.set_shader_parameter("selected", selected)
@@ -147,6 +171,8 @@ func serialize() -> Dictionary:
 		for normal in sample_normals:
 			normals.append([normal.x, normal.y, normal.z])
 		data.merge({"brush": brush_kind, "opacity": opacity, "taper": taper, "normals": normals, "uv": Array(path_uv), "uv_length": uv_length})
+		if brush_kind == "marker":
+			data["nib"] = nib_angle
 	return data
 
 func restore(data: Dictionary) -> void:
@@ -158,6 +184,7 @@ func restore(data: Dictionary) -> void:
 	plane_normal = Vector3(data.normal[0], data.normal[1], data.normal[2])
 	group_id = int(data.group)
 	brush_kind = data.get("brush", "tube")
+	nib_angle = float(data.get("nib", deg_to_rad(45.0)))
 	opacity = data.get("opacity", 1.0)
 	taper = data.get("taper", 0.15)
 	uv_length = data.get("uv_length", 0.0)
@@ -176,16 +203,25 @@ func add_point(point: Vector3, normal: Vector3 = Vector3.ZERO) -> void:
 		path_uv.append(uv_length)
 		sample_normals.append(normal.normalized() if normal.length_squared() > 0.1 else plane_normal)
 	points.append(point)
+	# Live strokes accumulate dozens of samples per frame; rebuilding the
+	# whole mesh for each is O(N^2) per stroke. While drawing, at most one
+	# rebuild per frame (~33ms); finish paths rebuild explicitly.
+	if defer_rebuild and Time.get_ticks_msec() - last_rebuild_msec < 33:
+		return
 	rebuild()
 
 func rebuild() -> void:
+	last_rebuild_msec = Time.get_ticks_msec()
 	if points.size() < 2:
+		bounds = AABB()
 		return
 	if brush_kind == "lasso_fill" or brush_kind == "rectangle_fill":
 		rebuild_fill()
+		bounds = mesh.get_aabb() if mesh != null else AABB()
 		return
 	if brush_kind != "tube":
 		rebuild_ink()
+		bounds = mesh.get_aabb() if mesh != null else AABB()
 		return
 	var vertices := PackedVector3Array()
 	var normals := PackedVector3Array()
@@ -233,6 +269,7 @@ func rebuild() -> void:
 	var result := ArrayMesh.new()
 	result.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	mesh = result
+	bounds = mesh.get_aabb()
 	if material_override == null:
 		var material := StandardMaterial3D.new()
 		material.albedo_color = ink

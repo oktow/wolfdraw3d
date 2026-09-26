@@ -156,8 +156,11 @@ func extend(screen: Vector2) -> void:
 	var replacements := []
 	var stroke_count: int = app.strokes.size()
 	var point_count: int = app.sample_count()
+	var sweep := Rect2(Vector2(minf(last.x, screen.x) - radius, minf(last.y, screen.y) - radius), Vector2(absf(screen.x - last.x) + radius * 2.0, absf(screen.y - last.y) + radius * 2.0))
 	for stroke in app.strokes:
 		if not stroke.visible:
+			continue
+		if not app.stroke_covers_rect(stroke, sweep):
 			continue
 		var result := split(stroke, last, screen)
 		if not result.touched:
