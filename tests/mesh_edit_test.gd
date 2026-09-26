@@ -25,7 +25,7 @@ func run(app: Node3D) -> bool:
 	app.set_tool("select")
 	app.set_vertex_edit(true)
 	assert(app.vertex_edit and app.selected_strokes.is_empty())
-	assert(app.rail_vertex_button.button_pressed)
+	assert(app.rail_subobj_button.button_pressed)
 	var corner_screen: Vector2 = app.camera.unproject_position(app.guides.current().corners[0])
 	var mesh_center_screen: Vector2 = app.camera.unproject_position(app.guides.current().center())
 	var corner_tap: Vector2 = corner_screen + (mesh_center_screen - corner_screen).normalized() * 10.0
