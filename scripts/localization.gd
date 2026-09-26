@@ -40,6 +40,7 @@ const TEXT := {
 		"ENVIRONMENT": "ENVIRONMENT", "Sumbu global": "Global axis", "Menampilkan atau menyembunyikan sumbu global XYZ.": "Show or hide the global XYZ axis.", "Grid": "Grid",
 		"Kursor 3D": "3D cursor", "Menaruh kursor 3D sebagai acuan lahir guide; ketuk atau seret kanvas.": "Place the 3D cursor as the guide birth reference; tap or drag the canvas.",
 		"Vertex objek": "Object vertices", "Memilih dan menggeser titik vertex guide aktif.": "Select and move vertices of the active guide.",
+		"Edge objek": "Object edges", "Face objek": "Object faces", "Extrude tepi": "Extrude edge",
 		"Memilih dan menggeser rusuk guide aktif.": "Select and move edges of the active guide.",
 		"Memilih dan menggeser sisi segitiga guide aktif.": "Select and move triangle faces of the active guide.",
 		"Menambah baris grid baru dari tepi terpilih.": "Grow a new grid row from the selected boundary.",

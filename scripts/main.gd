@@ -45,6 +45,9 @@ var rail_guide_face_button: Button
 var rail_guide_delete_button: Button
 var rail_guide_transform_button: Button
 var rail_vertex_button: Button
+var rail_edge_button: Button
+var rail_face_button: Button
+var rail_extrude_button: Button
 var rail_guide_rot_button: Button
 var rail_rotate_menu: PopupMenu
 var rail_draw_brush_button: Button
@@ -1647,7 +1650,7 @@ func layout_context_rail() -> void:
 		pad_rail.offset_bottom = 105
 	# Height follows the visible button count so stacked sections never clip.
 	var shown := 0
-	for button in [rail_guide_save_button, rail_guide_close_button, rail_guide_face_button, rail_guide_delete_button, rail_guide_transform_button, rail_guide_rot_button, rail_vertex_button, rail_draw_brush_button, rail_draw_props_button, rail_draw_taper_button, rail_draw_shape_button, rail_guide_new_button, rail_select_mode_button, rail_select_group_button, rail_select_all_button, rail_select_clear_button, rail_mode_move_button, rail_mode_rotate_button, rail_mode_scale_button, rail_select_duplicate_button, rail_select_mirror_button, rail_select_delete_button, rail_erase_radius_button]:
+	for button in [rail_guide_save_button, rail_guide_close_button, rail_guide_face_button, rail_guide_delete_button, rail_guide_transform_button, rail_guide_rot_button, rail_vertex_button, rail_edge_button, rail_face_button, rail_extrude_button, rail_draw_brush_button, rail_draw_props_button, rail_draw_taper_button, rail_draw_shape_button, rail_guide_new_button, rail_select_mode_button, rail_select_group_button, rail_select_all_button, rail_select_clear_button, rail_mode_move_button, rail_mode_rotate_button, rail_mode_scale_button, rail_select_duplicate_button, rail_select_mirror_button, rail_select_delete_button, rail_erase_radius_button]:
 		if button != null and button.visible:
 			shown += 1
 	var half := clampf(shown * 28.0 + 8.0, 60.0, get_viewport().get_visible_rect().size.y / 2.0 - 90.0)
@@ -1677,11 +1680,14 @@ func refresh_context_rail() -> void:
 	var draw_active := tool == "draw"
 	var select_active := tool == "select" and not guide_active
 	var erase_active := tool == "erase" and not guide_active
-	for button in [rail_guide_save_button, rail_guide_close_button, rail_guide_face_button, rail_guide_delete_button, rail_guide_transform_button, rail_guide_rot_button, rail_vertex_button]:
+	for button in [rail_guide_save_button, rail_guide_close_button, rail_guide_face_button, rail_guide_delete_button, rail_guide_transform_button, rail_guide_rot_button, rail_vertex_button, rail_edge_button, rail_face_button, rail_extrude_button]:
 		if button != null:
 			button.visible = guide_active
 	if rail_vertex_button != null:
-		rail_vertex_button.set_pressed_no_signal(vertex_edit)
+		rail_vertex_button.set_pressed_no_signal(vertex_edit and mesh_select_mode == "vertex")
+		rail_edge_button.set_pressed_no_signal(vertex_edit and mesh_select_mode == "edge")
+		rail_face_button.set_pressed_no_signal(vertex_edit and mesh_select_mode == "face")
+		rail_extrude_button.disabled = not can_extrude()
 	for button in [rail_draw_brush_button, rail_draw_props_button, rail_draw_taper_button, rail_draw_shape_button]:
 		if button != null:
 			button.visible = draw_active
@@ -2172,8 +2178,13 @@ func build_ui() -> void:
 	rail_guide_face_button = button_in(context_rail, "Hadap guide", face_guide)
 	rail_guide_delete_button = button_in(context_rail, "Hapus guide aktif", guides.delete_active)
 	rail_guide_transform_button = button_in(context_rail, "Transformasi guide", edit_guide_transform)
-	rail_vertex_button = button_in(context_rail, "Vertex objek", func(): set_vertex_edit(not vertex_edit))
+	rail_vertex_button = button_in(context_rail, "Vertex objek", func(): toggle_mesh_mode("vertex"))
 	rail_vertex_button.toggle_mode = true
+	rail_edge_button = button_in(context_rail, "Edge objek", func(): toggle_mesh_mode("edge"))
+	rail_edge_button.toggle_mode = true
+	rail_face_button = button_in(context_rail, "Face objek", func(): toggle_mesh_mode("face"))
+	rail_face_button.toggle_mode = true
+	rail_extrude_button = button_in(context_rail, "Extrude tepi", extrude_mesh_boundary)
 	rail_guide_rot_button = button_in(context_rail, "Putar 90°", show_rail_rotate_menu)
 	rail_rotate_menu = PopupMenu.new()
 	for axis_name in ["Sumbu X", "Sumbu Y", "Sumbu Z"]:
@@ -2253,7 +2264,7 @@ func build_ui() -> void:
 	rail_erase_radius_popup = build_compact_value_popup("Radius eraser", 4.0, 100.0, 1.0, eraser.radius, func(value: float):
 		set_eraser_radius(value)
 	, func(value: float): return ": %d px" % roundi(value))
-	for rail_button in [rail_guide_save_button, rail_guide_close_button, rail_guide_face_button, rail_guide_delete_button, rail_guide_transform_button, rail_guide_rot_button, rail_vertex_button, rail_draw_brush_button, rail_draw_props_button, rail_draw_taper_button, rail_draw_shape_button, rail_guide_new_button, rail_select_mode_button, rail_select_group_button, rail_select_all_button, rail_select_clear_button, rail_mode_move_button, rail_mode_rotate_button, rail_mode_scale_button, rail_select_duplicate_button, rail_select_mirror_button, rail_select_delete_button, rail_erase_radius_button]:
+	for rail_button in [rail_guide_save_button, rail_guide_close_button, rail_guide_face_button, rail_guide_delete_button, rail_guide_transform_button, rail_guide_rot_button, rail_vertex_button, rail_edge_button, rail_face_button, rail_extrude_button, rail_draw_brush_button, rail_draw_props_button, rail_draw_taper_button, rail_draw_shape_button, rail_guide_new_button, rail_select_mode_button, rail_select_group_button, rail_select_all_button, rail_select_clear_button, rail_mode_move_button, rail_mode_rotate_button, rail_mode_scale_button, rail_select_duplicate_button, rail_select_mirror_button, rail_select_delete_button, rail_erase_radius_button]:
 		rail_button.custom_minimum_size = Vector2(48, 48)
 		rail_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		rail_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -3198,6 +3209,13 @@ func selected_mesh_indices() -> Array[int]:
 func _add_mesh_index(out: Array[int], idx: int) -> void:
 	if not out.has(idx):
 		out.append(idx)
+
+func toggle_mesh_mode(mode: String) -> void:
+	# Rail radio: pressing the active mode turns sub-object editing off.
+	if vertex_edit and mesh_select_mode == mode:
+		set_vertex_edit(false)
+	else:
+		set_mesh_select_mode(mode)
 
 func set_mesh_select_mode(mode: String) -> void:
 	if mode not in ["vertex", "edge", "face"]:

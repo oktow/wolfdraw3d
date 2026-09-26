@@ -46,6 +46,9 @@ const PATHS = {
 	"global_axis": '<path d="M3 12h18 M18 8l3 4-3 4" stroke="#f18cae"/><path d="M12 21V3 M8 6l4-4 4 4" stroke="#73e6bb"/><path d="M6 18l9-9 M13 9h4v4" stroke="#8eb9ff"/>',
 	"cursor3d": '<circle cx="12" cy="12" r="6"/><path d="M12 1v5 M12 18v5 M1 12h5 M18 12h5"/>',
 	"vertex_edit": '<circle cx="5" cy="5" r="1.8"/><circle cx="12" cy="5" r="1.8"/><circle cx="19" cy="5" r="1.8"/><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/><circle cx="5" cy="19" r="1.8"/><circle cx="12" cy="19" r="1.8"/><circle cx="19" cy="19" r="1.8"/>',
+	"edge_edit": '<path d="M4 20 20 4"/><circle cx="4" cy="20" r="2.2"/><circle cx="20" cy="4" r="2.2"/>',
+	"face_edit": '<path d="M12 4 21 20 H3 Z"/><circle cx="12" cy="4" r="1.8"/><circle cx="21" cy="20" r="1.8"/><circle cx="3" cy="20" r="1.8"/>',
+	"extrude": '<rect x="3" y="9" width="11" height="11" rx="1"/><path d="M14 14h7 M18 11l3 3-3 3"/>',
 	"line": '<path d="M4 20 20 4"/><circle cx="4" cy="20" r="1.6"/><circle cx="20" cy="4" r="1.6"/>',
 	"polyline": '<circle cx="4" cy="18" r="1.6"/><circle cx="12" cy="8" r="1.6"/><circle cx="20" cy="14" r="1.6"/><path d="M5 17l6-8 8 5"/>',
 	"curve": '<path d="M3 18q6-12 9-6t9-6"/><circle cx="3" cy="18" r="1.4"/><circle cx="21" cy="6" r="1.4"/>',
@@ -132,6 +135,9 @@ const ACTIONS = {
 	,"Sumbu global": ["global_axis", "Menampilkan atau menyembunyikan sumbu global XYZ."]
 	,"Kursor 3D": ["cursor3d", "Menaruh kursor 3D sebagai acuan lahir guide; ketuk atau seret kanvas."]
 	,"Vertex objek": ["vertex_edit", "Memilih dan menggeser titik vertex guide aktif."]
+	,"Edge objek": ["edge_edit", "Memilih dan menggeser rusuk guide aktif."]
+	,"Face objek": ["face_edit", "Memilih dan menggeser sisi segitiga guide aktif."]
+	,"Extrude tepi": ["extrude", "Menambah baris grid baru dari tepi terpilih."]
 	,"Joystick 2D": ["joystick", "Pad geser/putar/skala pada bidang pandang untuk seleksi."]
 	,"Transformasi guide": ["joystick", "Beralih ke gizmo viewport untuk menggeser, memutar, atau menskala guide aktif. Tinta tetap di tempat."]
 	,"Putar 90°": ["mode_rotate", "Putar guide aktif 90 derajat; pilih sumbu dunia."]
