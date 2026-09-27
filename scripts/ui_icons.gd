@@ -68,7 +68,9 @@ const PATHS = {
 	"duplicate": '<rect x="7" y="7" width="12" height="12" rx="1"/><path d="M5 17H4V4h13v1 M12 10v6 M9 13h6"/>',
 	"mirror": '<path d="M12 3v18 M5 6l-3 3 3 3 M19 6l3 3-3 3 M5 15l-3 3 3 3 M19 15l3 3-3 3"/>',
 	"perspective": '<path d="M3 5h18v14H3Z M3 5l9 7 9-7 M3 19l9-7 9 7"/>',
-	"orthographic": '<rect x="4" y="5" width="16" height="14" rx="1"/><path d="M8 5v14 M16 5v14 M4 9h16 M4 15h16"/>'
+	"orthographic": '<rect x="4" y="5" width="16" height="14" rx="1"/><path d="M8 5v14 M16 5v14 M4 9h16 M4 15h16"/>',
+	"liquify": '<path d="M2 15q5-9 8-4t8-4 M2 19q5-9 8-4t8-4"/><circle cx="19" cy="5" r="1.6"/>',
+	"check": '<path d="m4 13 5 5L20 7"/>'
 }
 const ACTIONS = {
 	"Gambar B": ["pen", "Menggambar pada guide aktif. Pintasan B."],
@@ -144,6 +146,13 @@ const ACTIONS = {
 	,"Joystick 2D": ["joystick", "Pad geser/putar/skala pada bidang pandang untuk seleksi."]
 	,"Transformasi guide": ["joystick", "Beralih ke gizmo viewport untuk menggeser, memutar, atau menskala guide aktif. Tinta tetap di tempat."]
 	,"Putar 90°": ["mode_rotate", "Putar guide aktif 90 derajat; pilih sumbu dunia."]
+	,"Mulai Liquify": ["liquify", "Memulai Liquify pada goresan terpilih; seret di kanvas, lalu terapkan."]
+	,"Jenis Liquify": ["liquify", "Beralih Push, Pinch, atau Comb untuk sapuan Liquify."]
+	,"Ukuran Liquify": ["radius", "Mengatur radius sapuan Liquify."]
+	,"Terapkan Liquify": ["check", "Menerapkan hasil Liquify sebagai satu langkah Undo."]
+	,"Banding Liquify": ["eye", "Menampilkan kondisi awal Liquify sementara."]
+	,"Urung semua Liquify": ["undo", "Mengembalikan kondisi sebelum sesi Liquify."]
+	,"Batal Liquify": ["cancel", "Membatalkan sesi Liquify tanpa menerapkan perubahan."]
 }
 
 static func normalized(title: String) -> String:

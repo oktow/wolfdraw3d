@@ -15,6 +15,7 @@ func run(app: Node3D, temp: String) -> bool:
 	var thin_stroke := Stroke.new()
 	thin_stroke.brush_kind = "marker"
 	thin_stroke.radius = 0.1
+	thin_stroke.thickness = 0.0
 	thin_stroke.ink = Color("263238")
 	for i in range(21):
 		thin_stroke.add_point(Vector3(i * 0.05, -i * 0.05, 0), Vector3.BACK)
@@ -23,6 +24,7 @@ func run(app: Node3D, temp: String) -> bool:
 	var thick_stroke := Stroke.new()
 	thick_stroke.brush_kind = "marker"
 	thick_stroke.radius = 0.1
+	thick_stroke.thickness = 0.0
 	thick_stroke.ink = Color("263238")
 	for i in range(21):
 		thick_stroke.add_point(Vector3(i * 0.05, i * 0.05, 0), Vector3.BACK)
@@ -36,6 +38,7 @@ func run(app: Node3D, temp: String) -> bool:
 	flat_probe.brush_kind = "flat"
 	flat_probe.radius = 0.1
 	flat_probe.taper = 0.0
+	flat_probe.thickness = 0.0
 	flat_probe.ink = Color("263238")
 	for i in range(21):
 		flat_probe.add_point(Vector3(i * 0.05, sin(i * 0.3) * 0.2, 0), Vector3.BACK)
@@ -50,6 +53,8 @@ func run(app: Node3D, temp: String) -> bool:
 		var stroke := Stroke.new()
 		stroke.brush_kind = kind
 		stroke.radius = 0.11
+		stroke.thickness = 0.01
+		stroke.taper = 0.0
 		stroke.opacity = 0.8
 		stroke.ink = Color("263238")
 		app.add_child(stroke)
@@ -57,8 +62,15 @@ func run(app: Node3D, temp: String) -> bool:
 			stroke.add_point(Vector3(-2.6 + i * 0.0867, 1.05 - row * 0.7 + sin(i * 0.12) * 0.25, 0), Vector3.BACK)
 		app.strokes.append(stroke)
 		var arrays: Array = stroke.mesh.surface_get_arrays(0)
-		assert(arrays[Mesh.ARRAY_VERTEX].size() == stroke.points.size() * 2)
-		assert(arrays[Mesh.ARRAY_TEX_UV].size() == stroke.points.size() * 2)
+		assert(arrays[Mesh.ARRAY_VERTEX].size() == stroke.points.size() * 8)
+		assert(arrays[Mesh.ARRAY_TEX_UV].size() == stroke.points.size() * 8)
+		# Solid plank: top face spans the full width (marker excluded: its
+		# nib factor narrows diagonal runs by design), side edge spans thickness.
+		var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		if kind != "marker":
+			assert(is_equal_approx(verts[30 * 8].distance_to(verts[30 * 8 + 1]), 0.22))
+		assert(verts[30 * 8 + 4].distance_to(verts[30 * 8 + 5]) > 0.005)
+		assert(is_equal_approx(stroke.thickness, 0.01))
 		assert(stroke.material_override is ShaderMaterial)
 		assert(is_equal_approx(stroke.material_override.get_shader_parameter("opacity"), 0.8))
 		stroke.set_selected(true)
@@ -81,7 +93,8 @@ func run(app: Node3D, temp: String) -> bool:
 	for stroke in app.strokes:
 		assert(stroke.sample_normals.size() == stroke.points.size())
 		assert(stroke.path_uv.size() == stroke.points.size())
-		assert(stroke.opacity == 0.8 and stroke.taper == 0.15)
+		assert(stroke.opacity == 0.8 and stroke.taper == 0.0)
+		assert(is_equal_approx(stroke.thickness, 0.01))
 		var source: Dictionary = intact.strokes[["pen", "pencil", "brush", "marker", "flat"].find(stroke.brush_kind)]
 		assert(is_equal_approx(stroke.uv_length, source.uv_length))
 		if stroke.points[0].x > 0:
@@ -115,6 +128,16 @@ func run(app: Node3D, temp: String) -> bool:
 	bad = intact.duplicate(true)
 	bad.strokes[3].nib = "tajam"
 	assert(not Store.validate(bad).is_empty())
+	bad = intact.duplicate(true)
+	bad.strokes[0].thickness = -1
+	assert(not Store.validate(bad).is_empty())
+	# Zero thickness stays a thin double-sided strip; old files without the
+	# key restore as 0 and keep rendering.
+	var thin_restore := Stroke.new()
+	thin_restore.restore({"points": [[0,0,0],[1,0,0]], "radius": 0.04, "color": [0,0,0,1], "normal": [0,0,1], "group": 0, "brush": "pen", "opacity": 1.0, "taper": 0.15, "normals": [[0,0,1],[0,0,1]], "uv": [0, 1], "uv_length": 1.0})
+	assert(is_equal_approx(thin_restore.thickness, 0.0))
+	assert(thin_restore.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX].size() == 4)
+	thin_restore.free()
 	# Color pick repaints the selection as one undoable step.
 	app.choose_stroke(app.strokes[0])
 	app.set_brush_color(Color(1, 0, 0))
@@ -132,5 +155,5 @@ func run(app: Node3D, temp: String) -> bool:
 	app.set_projection(0)
 	app.set_tool("draw")
 	app.face_guide()
-	print("INK PASS: flat textured shaders, opacity/taper, v7 roundtrip, eraser UV/normal preservation, undo/redo, group transforms, validation, legacy tubes, marker nib")
+	print("INK PASS: flat textured shaders, opacity/taper/thickness, v8 roundtrip, eraser UV/normal preservation, undo/redo, group transforms, validation, legacy tubes, marker nib")
 	return true

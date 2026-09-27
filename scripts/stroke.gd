@@ -9,6 +9,7 @@ var group_id := 0
 var brush_kind := "tube"
 var opacity := 1.0
 var taper := 0.15
+var thickness := 0.006
 var sample_normals := PackedVector3Array()
 var path_uv := PackedFloat32Array()
 var uv_length := 0.0
@@ -30,6 +31,7 @@ func copy_brush(source: MeshInstance3D, samples: PackedFloat32Array) -> void:
 	brush_kind = source.brush_kind
 	opacity = source.opacity
 	taper = source.taper
+	thickness = source.thickness
 	uv_length = source.uv_length
 	nib_angle = source.nib_angle
 	if brush_kind == "tube":
@@ -42,9 +44,10 @@ func copy_brush(source: MeshInstance3D, samples: PackedFloat32Array) -> void:
 		path_uv.append(lerpf(source.path_uv[a], source.path_uv[a + 1], t))
 
 func rebuild_ink() -> void:
-	var verts := PackedVector3Array()
-	var uvs := PackedVector2Array()
-	var indices := PackedInt32Array()
+	var widths := PackedFloat32Array()
+	widths.resize(points.size())
+	var sides := PackedVector3Array()
+	sides.resize(points.size())
 	var previous_side := Vector3.ZERO
 	for i in points.size():
 		var tangent := (points[mini(i + 1, points.size() - 1)] - points[maxi(0, i - 1)]).normalized()
@@ -55,6 +58,7 @@ func rebuild_ink() -> void:
 		if previous_side.length_squared() > 0 and side.dot(previous_side) < 0:
 			side = -side
 		previous_side = side
+		sides[i] = side
 		var fraction := path_uv[i] / maxf(uv_length, 0.0001)
 		var width := 1.0 if taper <= 0 or brush_kind == "flat" else clampf(minf(fraction, 1.0 - fraction) / taper, 0.08, 1.0)
 		if brush_kind == "marker":
@@ -67,15 +71,68 @@ func rebuild_ink() -> void:
 			var nib := bx * cos(nib_angle) + by * sin(nib_angle)
 			var across: float = tangent.cross(nib).length()
 			width *= NIB_THIN + (1.0 - NIB_THIN) * clampf(across, 0.0, 1.0)
+		widths[i] = width
+	if thickness > 0.0001:
+		_rebuild_ink_solid(widths, sides)
+		return
+	var verts := PackedVector3Array()
+	var uvs := PackedVector2Array()
+	var indices := PackedInt32Array()
+	for i in points.size():
+		var normal := sample_normals[i]
 		# Local guide normals orient the strip; a tiny lift avoids coplanar flicker.
 		var center := points[i] + normal * 0.001
-		verts.append(center - side * radius * width)
-		verts.append(center + side * radius * width)
+		verts.append(center - sides[i] * radius * widths[i])
+		verts.append(center + sides[i] * radius * widths[i])
 		uvs.append(Vector2(path_uv[i], 0))
 		uvs.append(Vector2(path_uv[i], 1))
 		if i > 0:
 			var a := (i - 1) * 2
 			indices.append_array(PackedInt32Array([a,a+1,a+2,a+1,a+3,a+2]))
+	_finish_ink_mesh(verts, uvs, indices)
+
+func _rebuild_ink_solid(widths: PackedFloat32Array, sides: PackedVector3Array) -> void:
+	# Flat ribbon extruded along the guide normal: top/bottom faces keep the
+	# textured strip look, side edges are solid (UV.y = 0.5) so the stroke
+	# stays visible when viewed from the side, like a plank.
+	var verts := PackedVector3Array()
+	var uvs := PackedVector2Array()
+	var indices := PackedInt32Array()
+	var half := thickness * 0.5
+	for i in points.size():
+		var normal := sample_normals[i]
+		var center := points[i] + normal * 0.001
+		var w := radius * widths[i]
+		var off_w := sides[i] * w
+		var off_h := normal * half
+		var top_l := center - off_w + off_h
+		var top_r := center + off_w + off_h
+		var bot_l := center - off_w - off_h
+		var bot_r := center + off_w - off_h
+		# 0-1 top, 2-3 bottom, 4-5 left edge, 6-7 right edge.
+		verts.append_array(PackedVector3Array([top_l, top_r, bot_l, bot_r, top_l, bot_l, top_r, bot_r]))
+		var u := path_uv[i]
+		uvs.append_array(PackedVector2Array([Vector2(u, 0), Vector2(u, 1), Vector2(u, 0), Vector2(u, 1),
+			Vector2(u, 0.5), Vector2(u, 0.5), Vector2(u, 0.5), Vector2(u, 0.5)]))
+		if i > 0:
+			var a := (i - 1) * 8
+			var b := i * 8
+			# Top face.
+			indices.append_array(PackedInt32Array([a, a + 1, b, a + 1, b + 1, b]))
+			# Bottom face (reversed winding).
+			indices.append_array(PackedInt32Array([a + 2, b + 2, a + 3, a + 3, b + 2, b + 3]))
+			# Left edge.
+			indices.append_array(PackedInt32Array([a + 4, b + 4, a + 5, a + 5, b + 4, b + 5]))
+			# Right edge.
+			indices.append_array(PackedInt32Array([a + 6, a + 7, b + 6, a + 7, b + 7, b + 6]))
+	# End caps so the plank looks solid along its direction.
+	var s0 := 0
+	var s1 := (points.size() - 1) * 8
+	indices.append_array(PackedInt32Array([s0, s0 + 5, s0 + 6, s0 + 6, s0 + 5, s0 + 7]))
+	indices.append_array(PackedInt32Array([s1, s1 + 6, s1 + 5, s1 + 5, s1 + 6, s1 + 7]))
+	_finish_ink_mesh(verts, uvs, indices)
+
+func _finish_ink_mesh(verts: PackedVector3Array, uvs: PackedVector2Array, indices: PackedInt32Array) -> void:
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = verts
@@ -187,7 +244,7 @@ func serialize() -> Dictionary:
 		var normals := []
 		for normal in sample_normals:
 			normals.append([normal.x, normal.y, normal.z])
-		data.merge({"brush": brush_kind, "opacity": opacity, "taper": taper, "normals": normals, "uv": Array(path_uv), "uv_length": uv_length})
+		data.merge({"brush": brush_kind, "opacity": opacity, "taper": taper, "thickness": thickness, "normals": normals, "uv": Array(path_uv), "uv_length": uv_length})
 		if brush_kind == "marker":
 			data["nib"] = nib_angle
 	return data
@@ -212,6 +269,7 @@ func restore(data: Dictionary) -> void:
 	nib_angle = float(data.get("nib", deg_to_rad(45.0)))
 	opacity = data.get("opacity", 1.0)
 	taper = data.get("taper", 0.15)
+	thickness = float(data.get("thickness", 0.0))
 	uv_length = data.get("uv_length", 0.0)
 	path_uv = PackedFloat32Array(data.get("uv", []))
 	sample_normals.clear()

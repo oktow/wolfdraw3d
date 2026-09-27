@@ -2,7 +2,7 @@ extends RefCounted
 ## Versioned, data-only project files. Validate fully before touching the scene.
 
 const FORMAT := "wolfdraw3d"
-const VERSION := 7
+const VERSION := 8
 const MAX_POINTS := 200000
 const MAX_BYTES := 32 * 1024 * 1024
 const MAX_BG_IMAGE_CHARS := 5600000
@@ -24,7 +24,7 @@ static func valid_vector(value: Variant) -> bool:
 	return value is Array and value.size() == 3 and valid_number(value[0]) and valid_number(value[1]) and valid_number(value[2])
 
 static func validate(data: Variant) -> String:
-	if not data is Dictionary or data.get("format") != FORMAT or (data.get("version") != 1 and data.get("version") != 2 and data.get("version") != 3 and data.get("version") != 4 and data.get("version") != 5 and data.get("version") != 6 and data.get("version") != VERSION):
+	if not data is Dictionary or data.get("format") != FORMAT or (data.get("version") != 1 and data.get("version") != 2 and data.get("version") != 3 and data.get("version") != 4 and data.get("version") != 5 and data.get("version") != 6 and data.get("version") != 7 and data.get("version") != VERSION):
 		return "Format atau versi proyek tidak didukung."
 	var groups: Variant = data.get("groups")
 	var strokes: Variant = data.get("strokes")
@@ -92,6 +92,8 @@ static func validate(data: Variant) -> String:
 				continue
 			if not valid_number(stroke.get("opacity"), 1) or stroke.opacity < 0 or not valid_number(stroke.get("taper"), 0.5) or stroke.taper < 0:
 				return "Opacity/taper brush tidak valid."
+			if stroke.has("thickness") and (not valid_number(stroke.get("thickness"), 1) or stroke.thickness < 0):
+				return "Ketebalan brush tidak valid."
 			if not stroke.get("normals") is Array or stroke.normals.size() != points.size() or not stroke.get("uv") is Array or stroke.uv.size() != points.size():
 				return "Atribut titik brush tidak lengkap."
 			if not valid_number(stroke.get("uv_length"), 1e12) or stroke.uv_length <= 0:

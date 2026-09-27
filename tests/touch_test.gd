@@ -142,6 +142,20 @@ func run(app: Node) -> bool:
 	press(app, 5, center)
 	release(app, 5)
 	assert(app.camera.basis.z == Vector3.BACK, "Double-tap snaps to the nearest standard view")
+	# Double-tap snaps in draw mode too, leaving no ink behind.
+	app.set_tool("draw")
+	app.set_finger_drawing(true)
+	app.yaw = 0.3
+	app.pitch = 0.2
+	app.update_camera()
+	var ink_before: int = app.strokes.size()
+	press(app, 5, center)
+	release(app, 5)
+	press(app, 5, center)
+	release(app, 5)
+	assert(app.camera.basis.z == Vector3.BACK, "Double-tap snaps in draw mode")
+	assert(app.strokes.size() == ink_before and app.active == null)
+	app.set_finger_drawing(false)
 	app.target = Vector3(3, 4, 5)
 	app.distance = 20
 	app.update_camera()
@@ -261,9 +275,10 @@ func run(app: Node) -> bool:
 	else:
 		app.guides.quick_plane()
 	assert(app.guides.current() != null)
-	# Guide + Draw stack: both sections visible while drawing on a guide.
+	# Rail mirrors the active tool: Draw shows only its own section even
+	# with a guide active; the guide section returns on Select.
 	app.set_tool("draw")
-	assert(app.rail_guide_save_button.visible and app.rail_draw_brush_button.visible)
+	assert(app.rail_draw_brush_button.visible and not app.rail_guide_save_button.visible)
 	app.set_tool("select")
 	assert(app.rail_guide_save_button.visible and not app.rail_draw_brush_button.visible)
 	# Rail Select section and single-tap mode switching (needs no guide).
@@ -275,6 +290,61 @@ func run(app: Node) -> bool:
 	assert(app.selection_mode == "rectangle")
 	app.select_mode_pressed(0)
 	assert(app.selection_mode == "tap")
+	# Brush select: a swept path selects touched ink, a far path selects nothing.
+	app.select_mode_pressed(3)
+	assert(app.selection_mode == "brush")
+	app.target = Vector3.ZERO
+	app.distance = 12
+	app.yaw = 0.0
+	app.pitch = 0.0
+	app.update_camera()
+	var BrushStroke = preload("res://scripts/stroke.gd")
+	var bsrc = BrushStroke.new()
+	bsrc.points = PackedVector3Array([Vector3(-1, 0, 0), Vector3(1, 0, 0)])
+	bsrc.rebuild()
+	app.add_child(bsrc)
+	app.strokes.append(bsrc)
+	var bmid: Vector2 = app.camera.unproject_position(Vector3.ZERO)
+	app.apply_brush_selection(PackedVector2Array([bmid + Vector2(0, -40), bmid + Vector2(0, 40)]))
+	assert(app.selected_strokes.has(bsrc))
+	app.deselect_all()
+	app.apply_brush_selection(PackedVector2Array([bmid + Vector2(300, 300), bmid + Vector2(360, 340)]))
+	assert(app.selected_strokes.is_empty())
+	app.select_mode_pressed(0)
+	assert(app.selection_mode == "tap")
+	app.strokes.erase(bsrc)
+	app.remove_child(bsrc)
+	bsrc.free()
+	# Liquify top icon + session rail: needs a selection, then shows only
+	# Liquify controls until applied or cancelled.
+	assert(app.compact_liquify_button.visible)
+	app.deselect_all()
+	app.toggle_liquify_top()
+	assert(not app.liquify_active)
+	var lsrc = BrushStroke.new()
+	lsrc.points = PackedVector3Array([Vector3(-1, 0, 0), Vector3(1, 0, 0)])
+	lsrc.rebuild()
+	app.add_child(lsrc)
+	app.strokes.append(lsrc)
+	app.choose_stroke(lsrc)
+	app.toggle_liquify_top()
+	assert(app.liquify_active)
+	assert(app.compact_liquify_button.button_pressed)
+	assert(app.rail_liq_apply_button.visible and app.rail_liq_cancel_button.visible)
+	assert(not app.rail_draw_brush_button.visible and not app.rail_select_mode_button.visible and not app.rail_guide_new_button.visible)
+	app.liquify_cancel()
+	assert(not app.liquify_active and not app.compact_liquify_button.button_pressed)
+	app.deselect_all()
+	app.strokes.erase(lsrc)
+	app.remove_child(lsrc)
+	lsrc.free()
+	# Top icons mirror live state: exactly the active tool stays pressed.
+	app.set_tool("select")
+	app.refresh_top_icons()
+	assert(app.compact_select_button.button_pressed and not app.compact_draw_button.button_pressed)
+	app.set_tool("draw")
+	app.refresh_top_icons()
+	assert(app.compact_draw_button.button_pressed and not app.compact_select_button.button_pressed)
 	app.set_rail_transform_mode("rotate")
 	assert(app.transform_joystick.mode == "rotate")
 	assert(app.rail_mode_rotate_button.button_pressed and not app.rail_mode_move_button.button_pressed)
@@ -284,6 +354,7 @@ func run(app: Node) -> bool:
 	app.set_rail_transform_mode("move")
 	assert(app.transform_joystick.mode == "move" and app.rail_mode_move_button.button_pressed)
 	# 2D pad: toggled rail on the right, tap straight to move/rotate/scale.
+	app.set_tool("select")
 	assert(not app.pad_rail.visible)
 	app.compact_pad_button.button_pressed = true
 	app.compact_pad_button.pressed.emit()

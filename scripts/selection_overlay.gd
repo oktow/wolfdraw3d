@@ -42,7 +42,7 @@ func update_selection(position: Vector2) -> void:
 	if not active:
 		return
 	current = position
-	if mode == "lasso" and (lasso.is_empty() or lasso[-1].distance_to(position) >= 4):
+	if (mode == "lasso" or mode == "brush") and (lasso.is_empty() or lasso[-1].distance_to(position) >= 4):
 		lasso.append(position)
 	queue_redraw()
 
@@ -51,7 +51,7 @@ func end_selection() -> PackedVector2Array:
 		return PackedVector2Array()
 	active = false
 	queue_redraw()
-	if mode == "lasso":
+	if mode == "lasso" or mode == "brush":
 		return lasso
 	return PackedVector2Array([start, current])
 
@@ -71,7 +71,7 @@ func _draw() -> void:
 		draw_line(liquify_position - Vector2(0, 8), liquify_position + Vector2(0, 8), Color("f2c879"), 1.5, true)
 	if not active:
 		return
-	if mode == "lasso":
+	if mode == "lasso" or mode == "brush":
 		if lasso.size() > 1:
 			if fill_preview and lasso.size() > 2:
 				draw_colored_polygon(lasso, fill_color)

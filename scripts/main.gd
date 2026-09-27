@@ -12,10 +12,11 @@ const Localization = preload("res://scripts/localization.gd")
 const SequenceOverlay = preload("res://scripts/sequence_overlay.gd")
 const GifEncoder = preload("res://scripts/gif_encoder.gd")
 const PadJoystick = preload("res://scripts/pad_joystick.gd")
-const APP_VERSION := "0.2.8"
+const APP_VERSION := "0.3.0"
 var mirror_axes := {"x": false, "y": false, "z": false}
 var mirror_button: Button
 var compact_mirror_button: Button
+var compact_liquify_button: Button
 var compact_axis_button: Button
 var compact_pad_button: Button
 var compact_cursor_button: Button
@@ -57,6 +58,8 @@ var rail_props_radius_slider: HSlider
 var rail_props_radius_label: Label
 var rail_props_opacity_slider: HSlider
 var rail_props_opacity_label: Label
+var rail_props_thick_slider: HSlider
+var rail_props_thick_label: Label
 var rail_draw_taper_button: Button
 var rail_draw_shape_button: Button
 var rail_select_mode_button: Button
@@ -68,6 +71,15 @@ var rail_select_mirror_button: Button
 var rail_select_delete_button: Button
 var rail_erase_radius_button: Button
 var rail_erase_radius_popup: PopupPanel
+var rail_liq_type_button: Button
+var rail_liq_size_button: Button
+var rail_liq_size_popup: PopupPanel
+var rail_liq_size_slider: HSlider
+var rail_liq_size_label: Label
+var rail_liq_apply_button: Button
+var rail_liq_compare_button: Button
+var rail_liq_undo_button: Button
+var rail_liq_cancel_button: Button
 var eraser_radius_slider: HSlider
 var eraser_radius_label: Label
 var taper_toggle_button: Button
@@ -79,7 +91,8 @@ var compact_loft_button: Button
 var select_mode_menu: PopupMenu
 var select_mode_timer: Timer
 var select_mode_long_pressed := false
-var selection_mode := "tap"
+var selection_mode := "brush"
+const SELECT_BRUSH_PX := 24.0
 var selection_overlay: Control
 var compact_erase_button: Button
 var compact_undo_button: Button
@@ -169,6 +182,10 @@ var group_isolation_id := -1
 var selection_label: Label
 var size_label: Label
 var ink_label: Label
+var brush_radius_slider: HSlider
+var brush_alpha_slider: HSlider
+var brush_alpha_label: Label
+var brush_picker_type: OptionButton
 var brush_picker: ColorPickerButton
 var language_picker: OptionButton
 var menu_panels: Array[Control] = []
@@ -212,6 +229,17 @@ var brush_radius := 0.035
 var brush_kind := "pen"
 var brush_opacity := 1.0
 var brush_taper := 0.15
+var brush_thickness := 0.006
+var brush_profiles := {
+	"pen": {"radius": 0.035, "thickness": 0.006, "opacity": 1.0, "taper": 0.15},
+	"pencil": {"radius": 0.03, "thickness": 0.004, "opacity": 1.0, "taper": 0.15},
+	"brush": {"radius": 0.045, "thickness": 0.008, "opacity": 1.0, "taper": 0.15},
+	"marker": {"radius": 0.06, "thickness": 0.01, "opacity": 1.0, "taper": 0.15},
+	"flat": {"radius": 0.05, "thickness": 0.012, "opacity": 1.0, "taper": 0.0},
+	"tube": {"radius": 0.035, "thickness": 0.0, "opacity": 1.0, "taper": 0.0},
+}
+var thick_label: Label
+var thick_slider: HSlider
 var nib_angle := deg_to_rad(45.0)
 var nib_label: Label
 var nib_slider: HSlider
@@ -516,6 +544,7 @@ func env_set_toggle(key: String, value: bool) -> void:
 	env_settings[key] = value
 	apply_environment(env_settings)
 	changed()
+	refresh_top_icons()
 
 func env_begin_slider() -> void:
 	if not env_slider_active:
@@ -770,6 +799,7 @@ func begin_stroke(screen: Vector2) -> void:
 	active.ink = ink
 	active.radius = brush_radius
 	active.brush_kind = brush_kind
+	active.thickness = 0.0 if brush_kind == "tube" else brush_thickness
 	if brush_kind == "flat":
 		# Pena pipih solid: lebar konstan dan opak penuh, apa pun slider-nya.
 		active.opacity = 1.0
@@ -1030,6 +1060,7 @@ func finish_fill() -> void:
 	fill_active = false
 	var preview_points: PackedVector2Array = selection_overlay.end_selection()
 	selection_overlay.set_fill_preview(false)
+	selection_overlay.mode = selection_mode
 	var screen_points := fill_screen_points
 	fill_screen_points = PackedVector2Array()
 	if preview_points.size() >= 2:
@@ -1074,6 +1105,7 @@ func cancel_fill() -> void:
 	fill_screen_points = PackedVector2Array()
 	if is_instance_valid(selection_overlay):
 		selection_overlay.cancel_selection()
+		selection_overlay.mode = selection_mode
 		liquify_update_cursor(get_viewport().get_visible_rect().size / 2)
 
 func mirror_stroke(source: MeshInstance3D) -> void:
@@ -1329,12 +1361,35 @@ func end_touch(event: InputEventScreenTouch) -> void:
 		if liquify_active:
 			liquify_dragging = false
 		else:
+			var tap_now_ms := Time.get_ticks_msec()
+			var tap_small := touch_travel < TAP_TRAVEL_PX and event.position.distance_to(pending_touch) < TAP_TRAVEL_PX
+			var press_quick := touch_press_msec < 0 or tap_now_ms - touch_press_msec <= DOUBLE_TAP_MS
+			var polyline_tap: bool = guides.placing and guides.creation_mode == "polyline"
+			var is_double := tap_small and press_quick and touches.size() == 1 and not touch_blocked and last_tap_msec >= 0 and tap_now_ms - last_tap_msec <= DOUBLE_TAP_MS and event.position.distance_to(last_tap_pos) <= DOUBLE_TAP_DIST_PX
+			if is_double and not polyline_tap:
+				# Double-tap snaps in any tool or finger mode. The first
+				# tap keeps its effect; the second tap only snaps, so an
+				# accidental ink dot or deselect never happens.
+				last_tap_msec = -1
+				guides.finish_preview()
+				finish_stroke()
+				touches.erase(event.index)
+				reset_touch_pair()
+				if touches.is_empty():
+					touch_blocked = false
+					touch_action = ""
+					touch_drew = false
+				snap_to_nearest_view()
+				return
 			if touches.size() == 1 and not touch_blocked and touch_action == "edit":
-				if tool == "select" and touch_travel < TAP_TRAVEL_PX and event.position.distance_to(pending_touch) < TAP_TRAVEL_PX:
+				if tool == "select" and selection_overlay.active and selection_mode != "tap":
+					# Area/brush modes commit on release, tap-sized or dragged.
+					apply_overlay_selection()
+				elif tool == "select" and touch_travel < TAP_TRAVEL_PX and event.position.distance_to(pending_touch) < TAP_TRAVEL_PX:
 					if selection_mode == "tap":
 						edit_at(event.position)
 					elif selection_overlay.active:
-						apply_area_selection(selection_overlay.end_selection())
+						apply_overlay_selection()
 				elif guides.placing and guides.creation_mode == "polyline" and touch_travel < TAP_TRAVEL_PX and event.position.distance_to(pending_touch) < TAP_TRAVEL_PX:
 					# Double-tap commits the clicked vertices.
 					var tap_ms: int = Time.get_ticks_msec() - touch_press_msec if touch_press_msec >= 0 else DOUBLE_TAP_MS + 1
@@ -1375,6 +1430,13 @@ func end_touch(event: InputEventScreenTouch) -> void:
 					return
 				else:
 					last_three_tap_msec = now_ms
+			# Remember edit-mode taps for double-tap pairing. Orbit and
+			# polyline taps keep their own bookkeeping above, so they are
+			# excluded here to avoid comparing a tap against itself.
+			if touches.size() == 1 and not touch_blocked and touch_action == "edit" and not (guides.placing and guides.creation_mode == "polyline"):
+				if touch_travel < TAP_TRAVEL_PX and event.position.distance_to(pending_touch) < TAP_TRAVEL_PX:
+					last_tap_msec = Time.get_ticks_msec()
+					last_tap_pos = event.position
 	touches.erase(event.index)
 	reset_touch_pair()
 	if touches.is_empty():
@@ -1425,7 +1487,7 @@ func _input(event: InputEvent) -> void:
 							selection_overlay.begin_selection(event.position)
 			else:
 				if tool == "select" and selection_mode != "tap" and selection_overlay.active:
-					apply_area_selection(selection_overlay.end_selection())
+					apply_overlay_selection()
 				else:
 					guides.finish_preview()
 					finish_stroke()
@@ -1517,7 +1579,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				edit_at(event.position)
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
 		if tool == "select" and selection_mode != "tap" and selection_overlay.active:
-			apply_area_selection(selection_overlay.end_selection())
+			apply_overlay_selection()
 		else:
 			finish_stroke()
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT and event.double_click:
@@ -1590,6 +1652,7 @@ func set_tool(value: String) -> void:
 		if value != "select" and pad_visible:
 			pad_visible = false
 			compact_pad_button.set_pressed_no_signal(false)
+	refresh_top_icons()
 	update_status()
 
 func liquify_start() -> void:
@@ -1609,6 +1672,67 @@ func liquify_start() -> void:
 	selection_overlay.cancel_selection()
 	transform_joystick.queue_redraw()
 	status.text = Localization.translate("Liquify active: %s. Drag on strokes, then Apply.") % liquify_type.capitalize()
+	refresh_rail_liquify()
+	refresh_context_rail()
+
+func toggle_liquify_top() -> void:
+	# Top toolbar toggle: start on selection, apply while active.
+	if liquify_active:
+		liquify_apply()
+	else:
+		liquify_start()
+
+func cycle_liquify_type() -> void:
+	var order := ["push", "pinch", "comb"]
+	liquify_type = order[(order.find(liquify_type) + 1) % order.size()]
+	if liquify_type_picker != null:
+		liquify_type_picker.select(order.find(liquify_type))
+	if liquify_active:
+		status.text = Localization.translate("Liquify active: %s. Drag on strokes, then Apply.") % liquify_type.capitalize()
+	refresh_rail_liquify()
+
+func set_liquify_size(value: float) -> void:
+	liquify_size = value
+	if liquify_size_slider != null:
+		liquify_size_slider.set_value_no_signal(value)
+	if rail_liq_size_slider != null:
+		rail_liq_size_slider.set_value_no_signal(value)
+	if rail_liq_size_label != null:
+		rail_liq_size_label.text = Localization.translate("Ukuran Liquify") + "  %.2f" % value
+	liquify_update_cursor(get_viewport().get_visible_rect().size / 2)
+
+func refresh_rail_liquify() -> void:
+	if compact_liquify_button != null:
+		compact_liquify_button.set_pressed_no_signal(liquify_active)
+	if rail_liq_type_button != null:
+		rail_liq_type_button.tooltip_text = Localization.translate("Jenis Liquify") + ": " + liquify_type.capitalize()
+	if rail_liq_compare_button != null:
+		rail_liq_compare_button.set_pressed_no_signal(liquify_compare)
+	refresh_top_icons()
+
+func refresh_top_icons() -> void:
+	# Single place keeping every stateful top icon honest: the green
+	# pressed style always mirrors live state, never a stale tap.
+	if compact_draw_button != null:
+		compact_draw_button.set_pressed_no_signal(tool == "draw" and not navigation)
+	if compact_nav_button != null:
+		compact_nav_button.set_pressed_no_signal(navigation)
+	if compact_select_button != null:
+		compact_select_button.set_pressed_no_signal(tool == "select")
+	if compact_erase_button != null:
+		compact_erase_button.set_pressed_no_signal(tool == "erase")
+	if compact_cursor_button != null:
+		compact_cursor_button.set_pressed_no_signal(tool == "cursor")
+	if compact_guide_button != null:
+		compact_guide_button.set_pressed_no_signal(guides != null and guides.placing)
+	if compact_mirror_button != null:
+		compact_mirror_button.set_pressed_no_signal(mirror_axes["x"] or mirror_axes["y"] or mirror_axes["z"])
+	if compact_liquify_button != null:
+		compact_liquify_button.set_pressed_no_signal(liquify_active)
+	if compact_axis_button != null:
+		compact_axis_button.set_pressed_no_signal(bool(env_settings.get("axis", false)))
+	if compact_pad_button != null:
+		compact_pad_button.set_pressed_no_signal(pad_visible and tool == "select")
 
 func liquify_begin_drag(screen_pos: Vector2) -> void:
 	if not liquify_active:
@@ -1701,6 +1825,7 @@ func liquify_compare_toggle() -> void:
 				stroke.rebuild()
 		liquify_compare_preview.clear()
 	status.text = Localization.translate("Compare: before Liquify.") if liquify_compare else Localization.translate("Compare: Liquify result.")
+	refresh_rail_liquify()
 
 func liquify_apply() -> void:
 	if not liquify_active:
@@ -1722,6 +1847,8 @@ func liquify_apply() -> void:
 	selection_overlay.set_liquify_preview(false)
 	transform_joystick.queue_redraw()
 	status.text = Localization.translate("Liquify diterapkan.")
+	refresh_rail_liquify()
+	refresh_context_rail()
 
 func liquify_cancel() -> void:
 	if not liquify_active:
@@ -1733,6 +1860,8 @@ func liquify_cancel() -> void:
 	liquify_compare_preview.clear()
 	selection_overlay.set_liquify_preview(false)
 	transform_joystick.queue_redraw()
+	refresh_rail_liquify()
+	refresh_context_rail()
 
 func toggle_mirror_menu() -> void:
 	var enabled: bool = mirror_axes["x"] or mirror_axes["y"] or mirror_axes["z"]
@@ -1754,6 +1883,7 @@ func toggle_mirror_axis(id: int) -> void:
 	mirror_button.button_pressed = enabled
 	compact_mirror_button.button_pressed = enabled
 	status.text = Localization.translate("Mirror active: ") + axis_name.to_upper() if enabled else Localization.translate("Mirror inactive")
+	refresh_top_icons()
 
 func face_guide() -> void:
 	var surface: MeshInstance3D = guides.current()
@@ -1819,7 +1949,7 @@ func layout_context_rail() -> void:
 		pad_rail.offset_bottom = 105
 	# Height follows the visible button count so stacked sections never clip.
 	var shown := 0
-	for button in [rail_guide_save_button, rail_guide_close_button, rail_guide_face_button, rail_guide_delete_button, rail_guide_transform_button, rail_guide_rot_button, rail_subobj_button, rail_extrude_button, rail_draw_brush_button, rail_draw_props_button, rail_draw_taper_button, rail_draw_shape_button, rail_guide_new_button, rail_select_mode_button, rail_select_group_button, rail_select_all_button, rail_select_clear_button, rail_mode_move_button, rail_mode_rotate_button, rail_mode_scale_button, rail_select_duplicate_button, rail_select_mirror_button, rail_select_delete_button, rail_erase_radius_button]:
+	for button in [rail_guide_save_button, rail_guide_close_button, rail_guide_face_button, rail_guide_delete_button, rail_guide_transform_button, rail_guide_rot_button, rail_subobj_button, rail_extrude_button, rail_draw_brush_button, rail_draw_props_button, rail_draw_taper_button, rail_draw_shape_button, rail_guide_new_button, rail_select_mode_button, rail_select_group_button, rail_select_all_button, rail_select_clear_button, rail_mode_move_button, rail_mode_rotate_button, rail_mode_scale_button, rail_select_duplicate_button, rail_select_mirror_button, rail_select_delete_button, rail_erase_radius_button, rail_liq_type_button, rail_liq_size_button, rail_liq_apply_button, rail_liq_compare_button, rail_liq_undo_button, rail_liq_cancel_button]:
 		if button != null and button.visible:
 			shown += 1
 	var half := clampf(shown * 28.0 + 8.0, 60.0, get_viewport().get_visible_rect().size.y / 2.0 - 90.0)
@@ -1842,16 +1972,19 @@ func refresh_rail_draw_icons() -> void:
 func refresh_context_rail() -> void:
 	if context_rail == null:
 		return
-	# Guide and Draw stack when drawing on a guide; Select/Erase yield to
-	# the guide section. Without a guide, the rail follows the tool. The
-	# creation section shows on top-guide-icon toggle.
+	# The rail mirrors the active tool only: Draw shows the Draw section,
+	# Select/Erase show their sections plus the guide section when a guide
+	# is active. Guide lifecycle while drawing lives in the open panels or
+	# one tap away on the Select tool. Without a guide, the rail follows
+	# the tool. The creation section shows on top-guide-icon toggle.
 	var guide_active := guides != null and guides.current() != null
 	var draw_active := tool == "draw"
 	var select_active := tool == "select" and not guide_active
 	var erase_active := tool == "erase" and not guide_active
+	var guide_section := guide_active and not draw_active and not liquify_active
 	for button in [rail_guide_save_button, rail_guide_close_button, rail_guide_face_button, rail_guide_delete_button, rail_guide_transform_button, rail_guide_rot_button, rail_subobj_button, rail_extrude_button]:
 		if button != null:
-			button.visible = guide_active
+			button.visible = guide_section
 	if rail_subobj_button != null:
 		rail_subobj_button.set_pressed_no_signal(vertex_edit)
 		var subobj_key := "Vertex objek"
@@ -1863,28 +1996,34 @@ func refresh_context_rail() -> void:
 		rail_extrude_button.disabled = false
 	for button in [rail_draw_brush_button, rail_draw_props_button, rail_draw_taper_button, rail_draw_shape_button]:
 		if button != null:
-			button.visible = draw_active
+			button.visible = draw_active and not liquify_active
 	for button in [rail_select_mode_button, rail_select_group_button, rail_select_all_button, rail_select_clear_button, rail_mode_move_button, rail_mode_rotate_button, rail_mode_scale_button, rail_select_duplicate_button, rail_select_mirror_button, rail_select_delete_button]:
 		if button != null:
-			button.visible = select_active
-	if select_active:
+			button.visible = select_active and not liquify_active
+	if select_active and not liquify_active:
 		refresh_rail_transform_modes()
 	if rail_erase_radius_button != null:
-		rail_erase_radius_button.visible = erase_active
-	if draw_active:
+		rail_erase_radius_button.visible = erase_active and not liquify_active
+	for button in [rail_liq_type_button, rail_liq_size_button, rail_liq_apply_button, rail_liq_compare_button, rail_liq_undo_button, rail_liq_cancel_button]:
+		if button != null:
+			button.visible = liquify_active
+	if draw_active and not liquify_active:
 		refresh_rail_draw_icons()
 	refresh_top_guide_icon()
 	# The rail is a hidden-menu quick bar; it never covers the open panels.
-	# Guide and Draw sections stack when a guide is active while drawing.
-	# The single creation button is always at hand in hidden-menu mode.
+	# Each tool shows its own section only, so the rail stays short.
+	# While Liquify runs, only its session controls show.
+	# The single creation button is always at hand in hidden-menu mode,
+	# except mid-Liquify where canvas gestures belong to the session.
 	if rail_guide_new_button != null:
-		rail_guide_new_button.visible = true
+		rail_guide_new_button.visible = not liquify_active
 	context_rail.visible = not menu_visible
 	if pad_rail != null:
 		pad_rail.visible = pad_visible and tool == "select" and not menu_visible
 		if not pad_rail.visible and pad_stick != null and not pad_stick.dragging.is_empty():
 			# Finish, don't strand: hiding mid-drag commits the partial move.
 			pad_stick.end_gesture()
+	refresh_top_icons()
 	layout_context_rail()
 
 func edit_guide_transform() -> void:
@@ -1965,6 +2104,59 @@ func refresh_nib_ui() -> void:
 	nib_slider.editable = enabled
 	nib_slider.modulate = Color(1, 1, 1, 1) if enabled else Color(1, 1, 1, 0.35)
 	nib_label.modulate = Color(1, 1, 1, 1) if enabled else Color(1, 1, 1, 0.35)
+
+func set_brush_kind(kind: String) -> void:
+	_store_brush_profile()
+	brush_kind = kind
+	_apply_brush_profile()
+	refresh_nib_ui()
+	refresh_rail_draw_icons()
+
+func _store_brush_profile() -> void:
+	brush_profiles[brush_kind] = {"radius": brush_radius, "thickness": brush_thickness,
+		"opacity": brush_opacity, "taper": brush_taper}
+
+func _apply_brush_profile() -> void:
+	var profile: Dictionary = brush_profiles.get(brush_kind, {"radius": 0.035, "thickness": 0.006, "opacity": 1.0, "taper": 0.15})
+	brush_radius = float(profile.get("radius", 0.035))
+	brush_thickness = float(profile.get("thickness", 0.006))
+	brush_opacity = float(profile.get("opacity", 1.0))
+	brush_taper = float(profile.get("taper", 0.15))
+	_sync_brush_sliders()
+
+func _sync_brush_sliders() -> void:
+	if size_label != null:
+		size_label.text = Localization.translate("Radius") + "  %.3f" % brush_radius
+	if brush_radius_slider != null:
+		brush_radius_slider.set_value_no_signal(brush_radius)
+	if thick_label != null:
+		thick_label.text = Localization.translate("Ketebalan") + "  %.3f" % brush_thickness
+	if thick_slider != null:
+		thick_slider.set_value_no_signal(brush_thickness)
+		thick_slider.editable = brush_kind not in ["tube", "lasso_fill", "rectangle_fill", "paint"]
+	if brush_alpha_slider != null:
+		brush_alpha_slider.set_value_no_signal(brush_opacity)
+	if brush_alpha_label != null:
+		brush_alpha_label.text = "Opacity brush: %d%%" % roundi(brush_opacity * 100)
+	if taper_toggle_button != null:
+		taper_toggle_button.set_pressed_no_signal(brush_taper > 0.0)
+	if brush_picker_type != null:
+		var kinds := ["pen", "pencil", "brush", "marker", "flat", "tube", "lasso_fill", "rectangle_fill", "paint"]
+		brush_picker_type.select(maxi(0, kinds.find(brush_kind)))
+	if rail_props_radius_slider != null:
+		rail_props_radius_slider.set_value_no_signal(brush_radius)
+	if rail_props_radius_label != null:
+		rail_props_radius_label.text = Localization.translate("Radius") + "  %.3f" % brush_radius
+	if rail_props_opacity_slider != null:
+		rail_props_opacity_slider.set_value_no_signal(brush_opacity)
+	if rail_props_opacity_label != null:
+		rail_props_opacity_label.text = Localization.translate("Opacity brush") + ": %d%%" % roundi(brush_opacity * 100.0)
+	if rail_props_thick_slider != null:
+		rail_props_thick_slider.set_value_no_signal(brush_thickness)
+	if rail_props_thick_label != null:
+		rail_props_thick_label.text = Localization.translate("Ketebalan") + "  %.3f" % brush_thickness
+	if rail_draw_taper_button != null:
+		rail_draw_taper_button.set_pressed_no_signal(brush_taper > 0.0)
 
 func set_eraser_radius(value: float) -> void:
 	eraser.radius = value
@@ -2095,6 +2287,7 @@ func build_ui() -> void:
 	root.theme = theme
 	selection_overlay = SelectionOverlay.new()
 	selection_overlay.setup(self)
+	selection_overlay.mode = selection_mode
 	root.add_child(selection_overlay)
 	sequence_overlay = SequenceOverlay.new()
 	sequence_overlay.setup(self)
@@ -2169,21 +2362,32 @@ func build_ui() -> void:
 	ink_label.text = Localization.translate("Warna") + "  #" + ink.to_html(false).to_upper()
 	size_label = label_in(column, "Radius", 14)
 	size_label.text = Localization.translate("Radius") + "  %.3f" % brush_radius
-	var radius_slider := HSlider.new()
-	radius_slider.min_value = 0.005
-	radius_slider.max_value = 0.5
-	radius_slider.step = 0.005
-	radius_slider.value = brush_radius
-	radius_slider.custom_minimum_size.y = 32
-	radius_slider.value_changed.connect(func(value: float): brush_radius = value; size_label.text = Localization.translate("Radius") + "  %.3f" % value)
-	column.add_child(radius_slider)
-	var brush_picker_type := OptionButton.new()
+	brush_radius_slider = HSlider.new()
+	brush_radius_slider.min_value = 0.005
+	brush_radius_slider.max_value = 0.5
+	brush_radius_slider.step = 0.005
+	brush_radius_slider.value = brush_radius
+	brush_radius_slider.custom_minimum_size.y = 32
+	brush_radius_slider.value_changed.connect(func(value: float): brush_radius = value; _store_brush_profile(); size_label.text = Localization.translate("Radius") + "  %.3f" % value)
+	column.add_child(brush_radius_slider)
+	thick_label = label_in(column, "Ketebalan", 14)
+	thick_label.text = Localization.translate("Ketebalan") + "  %.3f" % brush_thickness
+	thick_slider = HSlider.new()
+	thick_slider.min_value = 0.0
+	thick_slider.max_value = 0.1
+	thick_slider.step = 0.001
+	thick_slider.value = brush_thickness
+	thick_slider.custom_minimum_size.y = 32
+	thick_slider.tooltip_text = Localization.translate("Tebal 3D pita flat; 0 berarti pita tipis dua sisi.")
+	thick_slider.value_changed.connect(func(value: float): brush_thickness = value; _store_brush_profile(); thick_label.text = Localization.translate("Ketebalan") + "  %.3f" % value)
+	column.add_child(thick_slider)
+	brush_picker_type = OptionButton.new()
 	brush_picker_type.custom_minimum_size.y = 44
 	var brush_items := ["Pena", "Pensil tekstur", "Kuas tekstur", "Spidol datar", "Pena pipih", "Tube 3D (lama)", "Lasso Fill", "Rectangle Fill", "Kuas warna"]
 	for title in brush_items:
 		brush_picker_type.add_item(Localization.translate(title))
 	brush_picker_type.set_meta("locale_items", brush_items)
-	brush_picker_type.item_selected.connect(func(index: int): brush_kind = ["pen", "pencil", "brush", "marker", "flat", "tube", "lasso_fill", "rectangle_fill", "paint"][index]; refresh_nib_ui(); refresh_rail_draw_icons())
+	brush_picker_type.item_selected.connect(func(index: int): set_brush_kind(["pen", "pencil", "brush", "marker", "flat", "tube", "lasso_fill", "rectangle_fill", "paint"][index]))
 	brush_picker_type.select(0)
 	column.add_child(brush_picker_type)
 	nib_label = label_in(column, "Sudut nib", 14)
@@ -2197,15 +2401,15 @@ func build_ui() -> void:
 	column.add_child(nib_slider)
 	refresh_nib_ui()
 	brush_picker_type.get_popup().add_theme_constant_override("v_separation", 22)
-	var opacity_label := label_in(column, "Opacity brush: 100%", 14)
-	var brush_alpha := HSlider.new()
-	brush_alpha.min_value = 0.05
-	brush_alpha.max_value = 1.0
-	brush_alpha.step = 0.05
-	brush_alpha.value = 1.0
-	brush_alpha.custom_minimum_size.y = 32
-	brush_alpha.value_changed.connect(func(value: float): brush_opacity = value; opacity_label.text = "Opacity brush: %d%%" % roundi(value * 100))
-	column.add_child(brush_alpha)
+	brush_alpha_label = label_in(column, "Opacity brush: 100%", 14)
+	brush_alpha_slider = HSlider.new()
+	brush_alpha_slider.min_value = 0.05
+	brush_alpha_slider.max_value = 1.0
+	brush_alpha_slider.step = 0.05
+	brush_alpha_slider.value = 1.0
+	brush_alpha_slider.custom_minimum_size.y = 32
+	brush_alpha_slider.value_changed.connect(func(value: float): brush_opacity = value; _store_brush_profile(); brush_alpha_label.text = "Opacity brush: %d%%" % roundi(value * 100))
+	column.add_child(brush_alpha_slider)
 	var brush_toggles := HBoxContainer.new()
 	column.add_child(brush_toggles)
 	taper_toggle_button = button_in(brush_toggles, "Ujung meruncing", func(): pass)
@@ -2213,6 +2417,7 @@ func build_ui() -> void:
 	taper_toggle_button.button_pressed = true
 	taper_toggle_button.toggled.connect(func(value: bool):
 		brush_taper = 0.15 if value else 0.0
+		_store_brush_profile()
 		if rail_draw_taper_button != null:
 			rail_draw_taper_button.set_pressed_no_signal(value))
 	shape_picker = OptionButton.new()
@@ -2224,7 +2429,7 @@ func build_ui() -> void:
 	shape_picker.tooltip_text = Localization.translate("Gambar bebas, tahan ujung sekitar 1 detik untuk merapikan, lalu geser tanpa melepas. Lepas sebelum ditahan untuk tetap bebas.")
 	column.add_child(shape_picker)
 	shape_picker.get_popup().add_theme_constant_override("v_separation", 22)
-	brush_picker_type.item_selected.connect(func(index: int): brush_alpha.editable = index < 5; taper_toggle_button.disabled = index >= 5)
+	brush_picker_type.item_selected.connect(func(index: int): brush_alpha_slider.editable = index < 5; taper_toggle_button.disabled = index >= 5)
 	eraser_controls = VBoxContainer.new()
 	column.add_child(eraser_controls)
 	eraser_radius_label = label_in(eraser_controls, "Radius eraser", 14)
@@ -2300,6 +2505,8 @@ func build_ui() -> void:
 	compact_duplicate_button = button_in(compact_toolbar, "Duplikat", duplicate_selected)
 	compact_loft_button = button_in(compact_toolbar, "Loft", loft_selected)
 	compact_erase_button = button_in(compact_toolbar, "Hapus E", set_tool.bind("erase"))
+	compact_liquify_button = button_in(compact_toolbar, "Mulai Liquify", toggle_liquify_top)
+	compact_liquify_button.toggle_mode = true
 	compact_undo_button = button_in(compact_toolbar, "Undo", undo)
 	compact_redo_button = button_in(compact_toolbar, "Redo", redo)
 	compact_mirror_button = button_in(compact_toolbar, "Mirror", toggle_mirror_menu)
@@ -2308,23 +2515,24 @@ func build_ui() -> void:
 	compact_axis_button = button_in(compact_toolbar, "Sumbu global", func(): pass)
 	compact_axis_button.toggle_mode = true
 	compact_axis_button.set_pressed_no_signal(bool(env_settings.get("axis", false)))
-	compact_axis_button.toggled.connect(func(value: bool): env_set_toggle("axis", value))
+	compact_axis_button.toggled.connect(func(value: bool): env_set_toggle("axis", value); refresh_top_icons())
 	compact_pad_button = button_in(compact_toolbar, "Joystick 2D", func(): pass)
 	compact_pad_button.toggle_mode = true
 	compact_pad_button.toggled.connect(func(value: bool):
 		pad_visible = value
-		refresh_context_rail())
+		refresh_context_rail()
+		refresh_top_icons())
 	compact_toolbar.move_child(compact_guide_button, 0)
 	compact_toolbar.move_child(compact_duplicate_button, 5)
 	compact_toolbar.move_child(compact_loft_button, 6)
-	for tool_button in [compact_guide_button, compact_draw_button, compact_nav_button, compact_select_button, compact_duplicate_button, compact_loft_button, compact_erase_button, compact_pad_button, compact_axis_button, compact_cursor_button]:
+	for tool_button in [compact_guide_button, compact_draw_button, compact_nav_button, compact_select_button, compact_duplicate_button, compact_loft_button, compact_erase_button, compact_liquify_button, compact_pad_button, compact_axis_button, compact_cursor_button]:
 		tool_button.custom_minimum_size = Vector2(48, 48)
 		tool_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		tool_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		tool_button.expand_icon = false
 		tool_button.add_theme_constant_override("icon_max_width", 24)
 		tool_button.set_meta("icon_button", true)
-	for icon_button in [compact_guide_button, compact_draw_button, compact_nav_button, compact_select_button, compact_duplicate_button, compact_loft_button, compact_erase_button, compact_pad_button, compact_axis_button, compact_cursor_button]:
+	for icon_button in [compact_guide_button, compact_draw_button, compact_nav_button, compact_select_button, compact_duplicate_button, compact_loft_button, compact_erase_button, compact_liquify_button, compact_pad_button, compact_axis_button, compact_cursor_button]:
 		icon_button.text = ""
 	compact_undo_button.text = ""
 	compact_redo_button.text = ""
@@ -2387,9 +2595,24 @@ func build_ui() -> void:
 	rail_props_radius_slider.custom_minimum_size = Vector2(220, 36)
 	rail_props_radius_slider.value_changed.connect(func(value: float):
 		brush_radius = value
+		_store_brush_profile()
 		rail_props_radius_label.text = Localization.translate("Radius") + "  %.3f" % value
 		size_label.text = Localization.translate("Radius") + "  %.3f" % value)
 	props_column.add_child(rail_props_radius_slider)
+	rail_props_thick_label = label_in(props_column, "Ketebalan", 14)
+	rail_props_thick_slider = HSlider.new()
+	rail_props_thick_slider.min_value = 0.0
+	rail_props_thick_slider.max_value = 0.1
+	rail_props_thick_slider.step = 0.001
+	rail_props_thick_slider.value = brush_thickness
+	rail_props_thick_slider.custom_minimum_size = Vector2(220, 36)
+	rail_props_thick_slider.tooltip_text = Localization.translate("Tebal 3D pita flat; 0 berarti pita tipis dua sisi.")
+	rail_props_thick_slider.value_changed.connect(func(value: float):
+		brush_thickness = value
+		_store_brush_profile()
+		rail_props_thick_label.text = Localization.translate("Ketebalan") + "  %.3f" % value
+		thick_label.text = Localization.translate("Ketebalan") + "  %.3f" % value)
+	props_column.add_child(rail_props_thick_slider)
 	rail_props_opacity_label = label_in(props_column, "Opacity brush", 14)
 	rail_props_opacity_slider = HSlider.new()
 	rail_props_opacity_slider.min_value = 0.05
@@ -2399,6 +2622,7 @@ func build_ui() -> void:
 	rail_props_opacity_slider.custom_minimum_size = Vector2(220, 36)
 	rail_props_opacity_slider.value_changed.connect(func(value: float):
 		brush_opacity = value
+		_store_brush_profile()
 		rail_props_opacity_label.text = Localization.translate("Opacity brush") + ": %d%%" % roundi(value * 100.0))
 	props_column.add_child(rail_props_opacity_slider)
 	compact_toolbar.get_parent().add_child(rail_props_popup)
@@ -2407,6 +2631,7 @@ func build_ui() -> void:
 	rail_draw_taper_button.button_pressed = brush_taper > 0.0
 	rail_draw_taper_button.toggled.connect(func(value: bool):
 		brush_taper = 0.15 if value else 0.0
+		_store_brush_profile()
 		if taper_toggle_button != null:
 			taper_toggle_button.set_pressed_no_signal(value)
 		refresh_rail_draw_icons())
@@ -2435,7 +2660,20 @@ func build_ui() -> void:
 	rail_erase_radius_popup = build_compact_value_popup("Radius eraser", 4.0, 100.0, 1.0, eraser.radius, func(value: float):
 		set_eraser_radius(value)
 	, func(value: float): return ": %d px" % roundi(value))
-	for rail_button in [rail_guide_save_button, rail_guide_close_button, rail_guide_face_button, rail_guide_delete_button, rail_guide_transform_button, rail_guide_rot_button, rail_subobj_button, rail_extrude_button, rail_draw_brush_button, rail_draw_props_button, rail_draw_taper_button, rail_draw_shape_button, rail_guide_new_button, rail_select_mode_button, rail_select_group_button, rail_select_all_button, rail_select_clear_button, rail_mode_move_button, rail_mode_rotate_button, rail_mode_scale_button, rail_select_duplicate_button, rail_select_mirror_button, rail_select_delete_button, rail_erase_radius_button]:
+	# Liquify session rail: type cycle, size popup, apply/compare/undo/cancel.
+	rail_liq_type_button = button_in(context_rail, "Jenis Liquify", cycle_liquify_type)
+	rail_liq_size_button = button_in(context_rail, "Ukuran Liquify", func(): show_synced_popup(rail_liq_size_popup, rail_liq_size_button, liquify_size))
+	rail_liq_size_popup = build_compact_value_popup("Ukuran Liquify", 0.25, 5.0, 0.01, liquify_size, func(value: float):
+		set_liquify_size(value)
+	, func(value: float): return "  %.2f" % value)
+	rail_liq_size_slider = rail_liq_size_popup.get_meta("slider")
+	rail_liq_size_label = rail_liq_size_popup.get_meta("label")
+	rail_liq_apply_button = button_in(context_rail, "Terapkan Liquify", liquify_apply)
+	rail_liq_compare_button = button_in(context_rail, "Banding Liquify", liquify_compare_toggle)
+	rail_liq_compare_button.toggle_mode = true
+	rail_liq_undo_button = button_in(context_rail, "Urung semua Liquify", liquify_undo_all)
+	rail_liq_cancel_button = button_in(context_rail, "Batal Liquify", liquify_cancel)
+	for rail_button in [rail_guide_save_button, rail_guide_close_button, rail_guide_face_button, rail_guide_delete_button, rail_guide_transform_button, rail_guide_rot_button, rail_subobj_button, rail_extrude_button, rail_draw_brush_button, rail_draw_props_button, rail_draw_taper_button, rail_draw_shape_button, rail_guide_new_button, rail_select_mode_button, rail_select_group_button, rail_select_all_button, rail_select_clear_button, rail_mode_move_button, rail_mode_rotate_button, rail_mode_scale_button, rail_select_duplicate_button, rail_select_mirror_button, rail_select_delete_button, rail_erase_radius_button, rail_liq_type_button, rail_liq_size_button, rail_liq_apply_button, rail_liq_compare_button, rail_liq_undo_button, rail_liq_cancel_button]:
 		rail_button.custom_minimum_size = Vector2(48, 48)
 		rail_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		rail_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -2454,7 +2692,7 @@ func build_ui() -> void:
 	layout_context_rail()
 	refresh_context_rail()
 	select_mode_menu = PopupMenu.new()
-	var select_mode_items := ["Tap: tambah/hapus", "Rectangle", "Lasso"]
+	var select_mode_items := ["Tap: tambah/hapus", "Rectangle", "Lasso", "Kuas seleksi"]
 	for item in select_mode_items:
 		select_mode_menu.add_check_item(item)
 	select_mode_menu.set_meta("locale_items", select_mode_items)
@@ -2663,8 +2901,8 @@ func select_rail_rotate_axis(id: int) -> void:
 
 func show_rail_select_mode() -> void:
 	refresh_popup_language(select_mode_menu)
-	for id in 3:
-		select_mode_menu.set_item_checked(id, ["tap", "rectangle", "lasso"][id] == selection_mode)
+	for id in 4:
+		select_mode_menu.set_item_checked(id, ["tap", "rectangle", "lasso", "brush"][id] == selection_mode)
 	select_mode_menu.position = Vector2i(rail_select_mode_button.global_position + Vector2(rail_select_mode_button.size.x + 6, 0))
 	select_mode_menu.popup()
 
@@ -2672,10 +2910,8 @@ func select_brush_tool(id: int) -> void:
 	var kinds := ["pen", "pencil", "brush", "marker", "flat", "tube", "lasso_fill", "rectangle_fill", "paint"]
 	if id < 0 or id >= kinds.size():
 		return
-	brush_kind = kinds[id]
+	set_brush_kind(kinds[id])
 	set_tool("draw")
-	refresh_nib_ui()
-	refresh_rail_draw_icons()
 	status.text = Localization.translate("Brush") + ": " + Localization.translate(["Pena", "Pensil tekstur", "Kuas tekstur", "Spidol datar", "Pena pipih", "Tube 3D (lama)", "Lasso Fill", "Rectangle Fill", "Kuas warna"][id])
 
 func smoke_test() -> void:
@@ -3001,10 +3237,10 @@ func set_selection_mode(value: String) -> void:
 		selection_overlay.mode = value
 		selection_overlay.cancel_selection()
 	if select_mode_menu != null:
-		for id in 3:
-			select_mode_menu.set_item_checked(id, ["tap", "rectangle", "lasso"][id] == value)
+		for id in 4:
+			select_mode_menu.set_item_checked(id, ["tap", "rectangle", "lasso", "brush"][id] == value)
 	if status != null:
-		status.text = Localization.translate({"tap": "Seleksi tap: ketuk untuk tambah/hapus", "rectangle": "Seleksi rectangle", "lasso": "Seleksi lasso"}.get(value, "Seleksi"))
+		status.text = Localization.translate({"tap": "Seleksi tap: ketuk untuk tambah/hapus", "rectangle": "Seleksi rectangle", "lasso": "Seleksi lasso", "brush": "Seleksi kuas: sapukan untuk memilih"}.get(value, "Seleksi"))
 
 func start_select_mode_hold() -> void:
 	select_mode_long_pressed = false
@@ -3030,7 +3266,7 @@ func refresh_popup_language(popup: PopupMenu) -> void:
 		popup.set_item_text(index, Localization.translate(items[index]))
 
 func select_mode_pressed(id: int) -> void:
-	set_selection_mode(["tap", "rectangle", "lasso"][id])
+	set_selection_mode(["tap", "rectangle", "lasso", "brush"][id])
 
 func apply_area_selection(points: PackedVector2Array) -> void:
 	if points.size() < 2:
@@ -3052,6 +3288,67 @@ func apply_area_selection(points: PackedVector2Array) -> void:
 				break
 	selected = selected_strokes.back() if not selected_strokes.is_empty() else null
 	update_status()
+
+func apply_overlay_selection() -> void:
+	# Route the finished overlay path to the active select mode.
+	var path: PackedVector2Array = selection_overlay.end_selection()
+	if selection_mode == "brush":
+		apply_brush_selection(path)
+	else:
+		apply_area_selection(path)
+
+func apply_brush_selection(path: PackedVector2Array) -> void:
+	# Feather-style brush select: every visible stroke touched by the swept
+	# path (within SELECT_BRUSH_PX) joins the selection. Segment-to-segment
+	# distance, so sparse two-point lines select like dense ones.
+	if path.is_empty():
+		return
+	var brush_path := PackedVector2Array()
+	if path.size() == 1:
+		brush_path = PackedVector2Array([path[0], path[0] + Vector2(0.01, 0)])
+	else:
+		brush_path = path
+	for stroke in strokes:
+		if not stroke.visible or stroke.points.size() < 1:
+			continue
+		var projected := PackedVector2Array()
+		var valid := PackedByteArray()
+		for point in stroke.points:
+			if camera.is_position_behind(point):
+				projected.append(Vector2.ZERO)
+				valid.append(0)
+			else:
+				projected.append(camera.unproject_position(point))
+				valid.append(1)
+		var hit := false
+		if stroke.points.size() == 1 and valid[0] == 1:
+			for i in range(brush_path.size() - 1):
+				if Geometry2D.get_closest_point_to_segment(projected[0], brush_path[i], brush_path[i + 1]).distance_to(projected[0]) <= SELECT_BRUSH_PX:
+					hit = true
+					break
+		for i in range(1, projected.size()):
+			if valid[i] == 0 or valid[i - 1] == 0:
+				continue
+			for j in range(brush_path.size() - 1):
+				if _seg_seg_dist(projected[i - 1], projected[i], brush_path[j], brush_path[j + 1]) <= SELECT_BRUSH_PX:
+					hit = true
+					break
+			if hit:
+				break
+		if hit and not selected_strokes.has(stroke):
+			selected_strokes.append(stroke)
+			stroke.set_selected(true)
+	selected = selected_strokes.back() if not selected_strokes.is_empty() else null
+	update_status()
+
+func _seg_seg_dist(a: Vector2, b: Vector2, c: Vector2, d: Vector2) -> float:
+	if Geometry2D.segment_intersects_segment(a, b, c, d) != null:
+		return 0.0
+	var nearest := Geometry2D.get_closest_point_to_segment(a, c, d).distance_to(a)
+	nearest = minf(nearest, Geometry2D.get_closest_point_to_segment(b, c, d).distance_to(b))
+	nearest = minf(nearest, Geometry2D.get_closest_point_to_segment(c, a, b).distance_to(c))
+	nearest = minf(nearest, Geometry2D.get_closest_point_to_segment(d, a, b).distance_to(d))
+	return nearest
 
 func pick_stroke(screen: Vector2) -> MeshInstance3D:
 	var best: MeshInstance3D
@@ -3924,9 +4221,9 @@ func build_edit_panel(root: Control) -> void:
 	liquify_type_picker.custom_minimum_size.y = 40
 	for title in ["Push", "Pinch", "Comb"]:
 		liquify_type_picker.add_item(title)
-	liquify_type_picker.item_selected.connect(func(index: int): liquify_type = ["push", "pinch", "comb"][index])
+	liquify_type_picker.item_selected.connect(func(index: int): liquify_type = ["push", "pinch", "comb"][index]; refresh_rail_liquify())
 	column.add_child(liquify_type_picker)
-	liquify_size_slider = liquify_slider(column, "Ukuran", 0.25, 5.0, liquify_size, func(value: float): liquify_size = value)
+	liquify_size_slider = liquify_slider(column, "Ukuran", 0.25, 5.0, liquify_size, func(value: float): set_liquify_size(value))
 	liquify_range_slider = liquify_slider(column, "Range", 0.05, 1.0, liquify_range, func(value: float): liquify_range = value)
 	liquify_strength_slider = liquify_slider(column, "Strength", 0.01, 1.0, liquify_strength, func(value: float): liquify_strength = value)
 	var liquify_actions := HBoxContainer.new()
